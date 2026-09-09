@@ -415,7 +415,17 @@ from `HEAD` with realistic inline secrets, migrated per the doc, and both resolv
 configs diffed. Every credential carried over byte-identically; the only
 differences were the intended ones, and §15.5 lists exactly that diff.
 
-Two hazards found while writing it, both verified against real containers:
+§15.2 deliberately does **not** `git pull`. A pull would advance the server to
+`origin/master` and bring every application commit with it, and
+`prisma migrate deploy` would then apply `20260624000000_per_device_encoding_tiers`
+(landed in `44cb453`, two commits before T010) on any server deployed before
+2026-06-24 — at which point the migration is no longer config-only and the cheap
+rollback is false. Instead it does a scoped `git checkout origin/master -- <paths>`
+for the templates, `web-nginx.conf` and the docs, leaving `HEAD` untouched.
+Upgrading the application is a separate release, and it needs T011 first.
+
+Three hazards found while writing it, the first two verified against real
+containers:
 
 - **An unquoted `$` in an env-file value is silently eaten.**
   `POSTGRES_PASSWORD=abc$def` reaches the container as `abc` — confirmed by

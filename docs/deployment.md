@@ -690,13 +690,43 @@ docker compose \
 chmod 600 ~/pre-upgrade-config.yml
 ```
 
-### 15.2 Pull the new code and templates
+### 15.2 Take the templates only — do **not** `git pull`
+
+A bare `git pull` would advance the server to `origin/master` and bring every
+application commit since your deployment with it. `up -d --build` then runs
+`migrate`, and `prisma migrate deploy` applies any pending schema migration — at
+which point this stops being config-only and the cheap rollback in §15.6 no
+longer holds ([§9a](#9a-rolling-back) explains why). At the time of writing,
+`20260624000000_per_device_encoding_tiers` is pending for any server deployed
+before 2026-06-24.
+
+So take just the files this migration needs, and leave `HEAD` where it is:
 
 ```bash
-git pull
+git fetch origin
+git checkout origin/master -- \
+  .env.prod.example \
+  .gitignore \
+  docker-compose.example.yml \
+  infra/docker/docker-compose.prod.example.yml \
+  infra/docker/web-nginx.conf \
+  docs/deployment.md \
+  docs/device-install.md
 ```
 
-Your real config files are git-ignored, so this changes nothing that is running.
+No new application code, no new migrations, nothing running is touched — your
+real config files are git-ignored either way. (This leaves those paths staged in
+git; that is harmless, and `git reset` clears it.)
+
+Upgrading the application itself is a separate release, with §9's procedure and a
+verified backup behind it. Do that after this migration has settled, not during
+it.
+
+> If you would rather do both at once, that is a legitimate choice — but run
+> `migrate status` (the command in [§8](#8-verify)) first, and if it reports
+> pending migrations, treat the whole thing as a code release under
+> [§9a](#9a-rolling-back): the rollback is then a database restore, not a file
+> copy.
 
 ### 15.3 Build `.env.prod` from the captured config, not from memory
 
@@ -705,8 +735,9 @@ cp .env.prod.example .env.prod
 chmod 600 .env.prod
 ```
 
-Read each value out of `~/pre-upgrade-config.yml` under `services.api.environment`
-and copy it across:
+Read each value out of `~/pre-upgrade-config.yml` under
+`services.api.environment` — except `WORKER_CONCURRENCY`, which is under
+`services.worker.environment` — and copy it across:
 
 | Take from the running config                                                                                           | Put in `.env.prod`                              |
 | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
@@ -715,7 +746,8 @@ and copy it across:
 | `API_PUBLIC_URL`                                                                                                       | `API_PUBLIC_URL`                                |
 | `CORS_ORIGINS`                                                                                                         | `CORS_ORIGINS`                                  |
 | `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_FORCE_PATH_STYLE` | the same names                                  |
-| `MAX_UPLOAD_SIZE_BYTES`, `WORKER_CONCURRENCY`                                                                          | the same names                                  |
+| `MAX_UPLOAD_SIZE_BYTES`                                                                                                | the same name                                   |
+| `WORKER_CONCURRENCY` (**under `services.worker`**)                                                                     | the same name                                   |
 | `INITIAL_SUPERADMIN_*`                                                                                                 | leave **empty** — the superadmin already exists |
 
 > ⚠ **Wrap every carried-over secret in single quotes.** An unquoted `$` is read
@@ -784,6 +816,15 @@ diff -u ~/pre-upgrade-config.yml ~/post-upgrade-config.yml
 This is the exact diff produced by rehearsing this procedure against the previous
 template. If yours shows more, something in §15.3 is wrong.
 
+**Watch for values that _disappear_, not only ones that appear.** If you ever
+hand-added a variable to your old override — `JWT_EXPIRES_IN`,
+`MAX_VIDEO_HEIGHT` and `PAIRING_CODE_TTL_MINUTES` are the likely candidates — it
+will vanish here, because the new override only substitutes the names it
+explicitly references. Restoring one takes **two** edits: add it to `.env.prod`,
+_and_ add a matching `NAME: ${NAME}` line to that service in
+`infra/docker/docker-compose.prod.yml`. Setting it in `.env.prod` alone does
+nothing.
+
 **Any difference in `DATABASE_URL`, `POSTGRES_PASSWORD`, `JWT_SECRET`, any
 `S3_*`, `API_PUBLIC_URL` or `CORS_ORIGINS` is a mistake in §15.3.** Stop and fix
 it. A `DATABASE_URL` whose password is _shorter_ than the original is the `$`
@@ -805,13 +846,17 @@ Then run §8's checks. `curl -fsS https://<your-domain>/health` should return
 smoke-test items 1–6 in [§8a](#8a-first-deploy-smoke-test); the pairing and port
 items are unchanged by this migration and do not need re-running.
 
-Rollback is complete and cheap, because nothing but config changed:
+Rollback is complete and cheap, because nothing but config changed. `HEAD` never
+moved (§15.2), so there is no code to revert — just put the three files back and
+restore the one committed file this migration did change:
 
 ```bash
 cp ~/config-backup/docker-compose.yml .
 cp ~/config-backup/docker-compose.prod.yml infra/docker/
 cp ~/config-backup/Caddyfile infra/docker/
-git checkout "$(cat ~/pre-upgrade-sha.txt)"
+
+# web-nginx.conf is committed and baked into the web image, so undo it too
+git checkout "$(cat ~/pre-upgrade-sha.txt)" -- infra/docker/web-nginx.conf
 
 docker compose \
   -f docker-compose.yml \
@@ -820,6 +865,9 @@ docker compose \
 
 The old files do not read `.env.prod`, so you can leave it in place while you
 work out what went wrong.
+
+> If you chose to `git pull` in §15.2 and a migration ran, **this is not enough**
+> — see [§9a](#9a-rolling-back). Restore the dump from §15.0 instead.
 
 ### 15.7 Clean up
 
