@@ -255,6 +255,10 @@ export async function superadminRoutes(app: FastifyInstance): Promise<void> {
       data: {
         passwordHash: await hashPassword(body.password),
         mustChangePassword: body.mustChangePassword,
+        // Kills every outstanding session for the account being reset. A
+        // superadmin resetting someone's password should lock out whoever may
+        // be holding a stolen token, not just change the credential.
+        passwordChangedAt: new Date(),
       },
     });
     await writeAudit(prisma, req, {

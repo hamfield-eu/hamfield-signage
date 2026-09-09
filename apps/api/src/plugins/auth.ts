@@ -1,30 +1,58 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { GlobalRole, OrgRole } from '@signage/shared';
 import type { Device, PrismaClient, User } from '@signage/database';
-import { roleSatisfies, verifyUserToken } from '../lib/auth';
+import { roleSatisfies, tokenPredatesPasswordChange, verifyUserToken } from '../lib/auth';
 import { hashDeviceToken } from '../lib/tokens';
 import { forbidden, unauthorized } from '../lib/errors';
 
 declare module 'fastify' {
   interface FastifyRequest {
     user?: { id: string; email: string };
+    /** The account row loaded by authenticateUser, so guards need not re-query. */
+    authUser?: User;
     device?: Device;
   }
 }
 
-/** preHandler: requires a valid user JWT (Authorization: Bearer ...). */
+/**
+ * preHandler: requires a valid user JWT (Authorization: Bearer ...).
+ *
+ * This deliberately loads the account row rather than trusting the token alone.
+ * The check has to be HERE and not in requireActiveUser, because not every
+ * handler calls a guard - `GET /orgs` (routes/orgs.ts) reads `req.user.id`
+ * directly and relies only on this hook. Putting the revocation check downstream
+ * would leave those routes bypassable, and would let a disabled account keep
+ * listing its organizations.
+ *
+ * The row is cached on the request so requireActiveUser/requireOrgRole reuse it
+ * instead of issuing a second query.
+ */
 export async function authenticateUser(req: FastifyRequest, _reply: FastifyReply): Promise<void> {
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) throw unauthorized('Missing bearer token');
   const payload = verifyUserToken(header.slice(7));
   if (!payload) throw unauthorized('Invalid or expired token');
-  req.user = { id: payload.sub, email: payload.email };
+
+  const user = await req.server.prisma.user.findUnique({ where: { id: payload.sub } });
+  // Deleted account, or a token for an id that no longer exists.
+  if (!user) throw unauthorized('Invalid or expired token');
+  if (tokenPredatesPasswordChange(payload.pwdAt, user.passwordChangedAt)) {
+    throw unauthorized('Session ended because the account password was changed');
+  }
+  if (user.disabledAt) throw forbidden('This account has been disabled');
+
+  req.user = { id: user.id, email: user.email };
+  req.authUser = user;
 }
 
-/** Loads the authenticated user and rejects disabled accounts. */
+/**
+ * Loads the authenticated user and rejects disabled accounts. Prefers the row
+ * authenticateUser already fetched; the query is a fallback for call paths that
+ * set req.user without running that hook.
+ */
 export async function requireActiveUser(prisma: PrismaClient, req: FastifyRequest): Promise<User> {
   if (!req.user) throw unauthorized();
-  const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+  const user = req.authUser ?? (await prisma.user.findUnique({ where: { id: req.user.id } }));
   if (!user) throw unauthorized();
   if (user.disabledAt) throw forbidden('This account has been disabled');
   return user;

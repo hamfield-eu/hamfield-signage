@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Button, ErrorNote, Field, Input } from '../components/ui';
-import { api } from '../lib/api';
+import { api, setToken } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { useAction } from '../lib/hooks';
 
@@ -16,7 +16,14 @@ export function ChangePasswordPage({ forced = false }: { forced?: boolean }) {
 
   const submit = useAction(async () => {
     if (newPassword !== confirm) throw new Error('Passwords do not match');
-    await api.post('/auth/change-password', { currentPassword, newPassword });
+    // The API invalidates every token issued before this change, including the
+    // one we are holding, and returns a replacement. Adopt it before the next
+    // request or refreshUser() below 401s and drops us at the login screen.
+    const res = await api.post<{ ok: boolean; token?: string }>('/auth/change-password', {
+      currentPassword,
+      newPassword,
+    });
+    if (res.token) setToken(res.token);
     await refreshUser();
   });
 

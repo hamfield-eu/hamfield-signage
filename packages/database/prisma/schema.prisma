@@ -145,6 +145,11 @@ model User {
   name               String
   globalRole         GlobalRole @default(user)
   mustChangePassword Boolean    @default(false)
+  /// Set whenever the password changes. Embedded as a claim in issued JWTs;
+  /// authentication rejects tokens older than this, which is what makes a
+  /// stateless 7-day token revocable. NULL = never changed since the column
+  /// was added, so pre-existing sessions survive the deploy.
+  passwordChangedAt  DateTime?
   disabledAt         DateTime?
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt

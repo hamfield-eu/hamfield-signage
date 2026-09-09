@@ -1,0 +1,11 @@
+-- Makes outstanding JWTs revocable on password change (T012 S5).
+--
+-- Tokens are stateless and live 7 days, so before this a stolen token stayed
+-- valid for up to a week with no way to kill it - changing the password did not
+-- help. signUserToken now embeds this timestamp as a claim, and authentication
+-- rejects any token whose claim predates the stored value.
+--
+-- Additive and nullable on purpose: NULL means "never changed since this
+-- migration", so every session outstanding at deploy time keeps working. A
+-- session is only invalidated once that user's password actually changes.
+ALTER TABLE "users" ADD COLUMN "passwordChangedAt" TIMESTAMP(3);

@@ -67,7 +67,11 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         });
       }
       return {
-        token: signUserToken({ sub: user.id, email: user.email }),
+        token: signUserToken({
+          sub: user.id,
+          email: user.email,
+          pwdAt: user.passwordChangedAt?.getTime(),
+        }),
         user: serializeUser(user),
         organizations: await serializeMemberOrgs(memberships, user.globalRole === 'superadmin'),
       };
@@ -99,12 +103,28 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         throw badRequest('New password must differ from the current password');
       }
 
+      // passwordChangedAt invalidates every token issued before this moment -
+      // including the caller's own. Hand back a fresh one so changing your
+      // password does not log you out of the tab you are sitting in; every OTHER
+      // session for this account dies, which is the point.
+      const passwordChangedAt = new Date();
       await prisma.user.update({
         where: { id: user.id },
-        data: { passwordHash: await hashPassword(body.newPassword), mustChangePassword: false },
+        data: {
+          passwordHash: await hashPassword(body.newPassword),
+          mustChangePassword: false,
+          passwordChangedAt,
+        },
       });
-      req.log.info({ userId: user.id }, 'auth: password changed');
-      return { ok: true };
+      req.log.info({ userId: user.id }, 'auth: password changed, other sessions invalidated');
+      return {
+        ok: true,
+        token: signUserToken({
+          sub: user.id,
+          email: user.email,
+          pwdAt: passwordChangedAt.getTime(),
+        }),
+      };
     },
   );
 }
