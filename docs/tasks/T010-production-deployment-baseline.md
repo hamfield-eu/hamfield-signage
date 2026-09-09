@@ -443,6 +443,37 @@ a running server delivers **only** `infra/docker/web-nginx.conf` (committed, bak
 into the `web` image). Everything else in this task lives in git-ignored real
 files and reaches the box only through §15. §9 now says so.
 
+### Found in production: nginx pinned the api container's IP
+
+Hit on 2026-09-09 during the credential rotation on `signage.hamfield.eu`, and
+fixed here because it is a committed-config defect, not an operator mistake.
+
+`proxy_pass http://api:4000` with a literal hostname makes nginx resolve `api`
+**once, at startup**, and cache the address for the life of the process. Every
+`docker compose up -d` gives the recreated `api` container a new IP, so `web`
+keeps dialling the old one. Docker reuses freed addresses, so that IP frequently
+belongs to another live container by then — which refuses :4000 immediately. The
+symptom is an instant hard 502 on every `/api/…` call rather than a timeout,
+until `web` is restarted by hand. It would have recurred on the §15 migration and
+on every future release.
+
+Fix: `resolver 127.0.0.11 valid=10s` plus `set $api_upstream api:4000` in both
+locations, deferring resolution to request time. `$request_uri` is appended
+explicitly in the `/api/` block, because nginx stops appending the request URI on
+its own once `proxy_pass` contains a variable.
+
+Verified empirically rather than from documentation — a harness that forces `api`
+onto a new IP while `web` stays up:
+
+- old config → `502 Bad Gateway` after the IP change, reproducing production
+- new config → follows to the new container within the 10s TTL, no restart
+- path and query preserved byte-for-byte (`/api/v1/media?folderId=abc&limit=50`
+  arrives intact)
+- `/health` still arrives as `/health`; SPA fallback unaffected; `nginx -t` passes
+
+This reaches a running server only on `up -d --build` of `web`; §9 and §14 tell
+operators on older images to `dc restart web` in the meantime.
+
 ### Correction to this task file
 
 Gap #2 above says healthchecks matter because `restart: unless-stopped` "never
