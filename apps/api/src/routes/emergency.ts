@@ -4,6 +4,7 @@ import type { PrismaClient } from '@signage/database';
 import { authenticateUser, requireOrgRole } from '../plugins/auth';
 import { badRequest, notFound } from '../lib/errors';
 import { serializeEmergency } from '../lib/serializers';
+import { writeAudit } from '../lib/audit';
 
 type OrgParams = { Params: { orgId: string } };
 type OverrideParams = { Params: { orgId: string; overrideId: string } };
@@ -115,6 +116,22 @@ export async function emergencyRoutes(app: FastifyInstance): Promise<void> {
       { overrideId: override.id, orgId: req.params.orgId, appliesToAll: body.appliesToAll },
       'emergency override started',
     );
+    // Starting an override blanks a customer's screens org-wide. It is the most
+    // disruptive action in the product and was not audited at all.
+    await writeAudit(prisma, req, {
+      action: 'emergency.start',
+      targetType: 'emergency_override',
+      targetId: override.id,
+      organizationId: req.params.orgId,
+      metadata: {
+        name: override.name,
+        appliesToAll: body.appliesToAll,
+        deviceCount: body.appliesToAll ? null : body.deviceIds.length,
+        groupCount: body.appliesToAll ? null : body.groupIds.length,
+        playlistId: override.playlistId,
+        mediaAssetId: override.mediaAssetId,
+      },
+    });
     if (body.appliesToAll) {
       await wsHub.notifyOrgSyncRequired(req.params.orgId, 'emergency override started');
     } else {
@@ -146,6 +163,21 @@ export async function emergencyRoutes(app: FastifyInstance): Promise<void> {
     });
 
     req.log.warn({ overrideId: override.id }, 'emergency override stopped');
+    await writeAudit(prisma, req, {
+      action: 'emergency.stop',
+      targetType: 'emergency_override',
+      targetId: override.id,
+      organizationId: req.params.orgId,
+      metadata: {
+        name: override.name,
+        appliesToAll: override.appliesToAll,
+        // How long screens were actually overridden - the number an incident
+        // review asks for first.
+        durationSeconds: Math.round(
+          ((updated.stoppedAt ?? new Date()).getTime() - override.startedAt.getTime()) / 1000,
+        ),
+      },
+    });
     if (override.appliesToAll) {
       await wsHub.notifyOrgSyncRequired(req.params.orgId, 'emergency override stopped');
     } else {

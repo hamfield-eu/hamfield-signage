@@ -13,6 +13,7 @@ import { badRequest, notFound } from '../lib/errors';
 import { generatePairingCode } from '../lib/tokens';
 import { presignDownload } from '../lib/s3';
 import { serializeCommand, serializeDevice, serializeDeviceLog } from '../lib/serializers';
+import { writeAudit } from '../lib/audit';
 import { getEnv } from '../env';
 
 type OrgParams = { Params: { orgId: string } };
@@ -91,6 +92,13 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
       include: { groupMemberships: true },
     });
     req.log.info({ deviceId: device.id, orgId: req.params.orgId }, 'device created');
+    await writeAudit(prisma, req, {
+      action: 'device.create',
+      targetType: 'device',
+      targetId: device.id,
+      organizationId: req.params.orgId,
+      metadata: { name: device.name },
+    });
     return reply.status(201).send(serializeDevice(device));
   });
 
@@ -182,6 +190,13 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
       }),
     ]);
     req.log.info({ deviceId: device.id }, 'device soft-deleted, tokens revoked');
+    await writeAudit(prisma, req, {
+      action: 'device.delete',
+      targetType: 'device',
+      targetId: device.id,
+      organizationId: req.params.orgId,
+      metadata: { name: device.name },
+    });
     return reply.status(204).send();
   });
 
@@ -198,6 +213,15 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
       include: { groupMemberships: true },
     });
     req.log.info({ deviceId: device.id }, 'pairing code regenerated');
+    // Deliberately no code in the metadata: a pairing code is a credential, and
+    // the audit log is readable by every superadmin.
+    await writeAudit(prisma, req, {
+      action: 'device.regenerate_pairing_code',
+      targetType: 'device',
+      targetId: device.id,
+      organizationId: req.params.orgId,
+      metadata: { name: device.name },
+    });
     return serializeDevice(updated);
   });
 
@@ -209,6 +233,13 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
       data: { revokedAt: new Date() },
     });
     req.log.warn({ deviceId: device.id, revoked: count }, 'device tokens revoked');
+    await writeAudit(prisma, req, {
+      action: 'device.revoke_token',
+      targetType: 'device',
+      targetId: device.id,
+      organizationId: req.params.orgId,
+      metadata: { name: device.name, revoked: count },
+    });
     return { revoked: count };
   });
 
@@ -289,6 +320,23 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
     });
 
     req.log.info({ deviceId: device.id, commandId: command.id, type: body.type }, 'command issued');
+    // reboot_device and software_update are disruptive and remote-triggered, so
+    // who issued them has to be recoverable. The payload is recorded only for
+    // command types known not to carry anything sensitive - software_update
+    // payloads contain a URL, which may be signed.
+    const payloadIsSafeToLog = body.type !== 'software_update';
+    await writeAudit(prisma, req, {
+      action: 'device.command',
+      targetType: 'device_command',
+      targetId: command.id,
+      organizationId: req.params.orgId,
+      metadata: {
+        deviceId: device.id,
+        deviceName: device.name,
+        type: body.type,
+        ...(payloadIsSafeToLog ? { payload: body.payload } : {}),
+      },
+    });
     return reply.status(201).send(serializeCommand(sent));
   });
 

@@ -9,6 +9,7 @@ import type { Schedule } from '@signage/database';
 import { authenticateUser, requireOrgRole } from '../plugins/auth';
 import { badRequest, notFound } from '../lib/errors';
 import { serializeSchedule } from '../lib/serializers';
+import { writeAudit } from '../lib/audit';
 
 type OrgParams = { Params: { orgId: string } };
 type ScheduleParams = { Params: { orgId: string; scheduleId: string } };
@@ -105,6 +106,13 @@ export async function scheduleRoutes(app: FastifyInstance): Promise<void> {
       include: scheduleInclude,
     });
     await wsHub.notifyOrgSyncRequired(req.params.orgId, 'schedule created');
+    await writeAudit(prisma, req, {
+      action: 'schedule.create',
+      targetType: 'schedule',
+      targetId: schedule.id,
+      organizationId: req.params.orgId,
+      metadata: { name: schedule.name, playlistId: schedule.playlistId, priority: schedule.priority },
+    });
     return reply.status(201).send(serializeSchedule(schedule));
   });
 
@@ -254,6 +262,13 @@ export async function scheduleRoutes(app: FastifyInstance): Promise<void> {
     });
 
     await wsHub.notifyOrgSyncRequired(req.params.orgId, 'schedule updated');
+    await writeAudit(prisma, req, {
+      action: 'schedule.update',
+      targetType: 'schedule',
+      targetId: updated.id,
+      organizationId: req.params.orgId,
+      metadata: { name: updated.name, playlistId: updated.playlistId, priority: updated.priority },
+    });
     return serializeSchedule(updated);
   });
 
@@ -269,6 +284,13 @@ export async function scheduleRoutes(app: FastifyInstance): Promise<void> {
       data: { deletedAt: new Date(), enabled: false },
     });
     await wsHub.notifyOrgSyncRequired(req.params.orgId, 'schedule deleted');
+    await writeAudit(prisma, req, {
+      action: 'schedule.delete',
+      targetType: 'schedule',
+      targetId: schedule.id,
+      organizationId: req.params.orgId,
+      metadata: { name: schedule.name, playlistId: schedule.playlistId, priority: schedule.priority },
+    });
     return reply.status(204).send();
   });
 }
