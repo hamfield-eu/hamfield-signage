@@ -494,6 +494,13 @@ root. Track it separately rather than pretending S9 is closed.
   3. Accept the risk, having tightened the credential: the media token is
      bucket-scoped and was rotated on 2026-09-09.
 
+  **DECISION (owner, 2026-09-09): option 3, accept the risk for now.** The app
+  does not bulk-delete media, the token is scoped and freshly rotated, and no
+  further work is blocked on this. Revisit before T013's object-reclaiming job is
+  enabled — that job is the first code that would delete media at scale, and is
+  the point at which this stops being a theoretical exposure and becomes our own
+  bug surface.
+
   Useful context for whichever is chosen: the application almost never deletes
   media. Deletion is a SOFT delete (`deletedAt` on the row; objects stay — which
   is why `reconcile-media.sh` reports orphans), and the only `deleteFromS3` call
