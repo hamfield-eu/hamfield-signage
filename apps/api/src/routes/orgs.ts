@@ -6,6 +6,7 @@ import {
   updateOrgSchema,
 } from '@signage/shared';
 import { sanitizeFilename, validateLogoBuffer } from '@signage/media';
+import { ORG_LOGO_MAX_BYTES } from '@signage/shared';
 import { authenticateUser, requireOrgRole, requireSuperadmin } from '../plugins/auth';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
@@ -81,7 +82,15 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
 
   app.post<{ Params: { orgId: string } }>('/orgs/:orgId/logo', async (req, reply) => {
     const role = await requireOrgRole(prisma, req, req.params.orgId, 'admin');
-    const file = await req.file();
+    // Per-request limit, NOT the global MAX_UPLOAD_SIZE_BYTES (1 GiB by default).
+    // toBuffer() below materialises the whole upload in API memory, and
+    // validateLogoBuffer only enforces the 2 MB cap afterwards - so without this
+    // any org admin could spike the API process by ~1 GiB. The stream is cut off
+    // at the limit instead, and `truncated` turns that into a clean 400.
+    //
+    // The other multipart route, POST /orgs/:orgId/media, streams to a temp file
+    // via pipeline() and is already correct; it is deliberately left alone.
+    const file = await req.file({ limits: { fileSize: ORG_LOGO_MAX_BYTES } });
     if (!file) throw badRequest('No file uploaded (expected multipart field "file")');
 
     const buffer = await file.toBuffer();

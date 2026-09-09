@@ -10,6 +10,7 @@ import { corsOrigins, getEnv, trustProxy } from './env';
 import { HttpError } from './lib/errors';
 import { WsHub } from './lib/ws-hub';
 import { makeDeviceAuth } from './plugins/auth';
+import { hashDeviceToken } from './lib/tokens';
 import { authRoutes } from './routes/auth';
 import { orgRoutes } from './routes/orgs';
 import { deviceRoutes } from './routes/devices';
@@ -65,8 +66,40 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
     origin: corsOrigins(),
     credentials: false,
   });
+  // Rate limiting is GLOBAL. It used to be opt-in, which left /device/heartbeat,
+  // /device/logs, /device/playback-events and every /orgs/* route unlimited - one
+  // compromised device token could write unbounded telemetry rows. The tight
+  // per-route overrides (login 10/min, change-password 5/min, pair 10/min) still
+  // apply on top of this default.
   await app.register(rateLimit, {
-    global: false,
+    global: true,
+    max: 300,
+    timeWindow: '1 minute',
+    // Device routes must NOT be keyed by IP: a site of twenty screens behind one
+    // NAT shares an address and would throttle each other. Key them by the
+    // device's own token instead.
+    //
+    // The token is hashed, both because the raw value must not become a cache
+    // key and because that hash is already how tokens are stored. This runs on
+    // the onRequest hook, BEFORE the device-auth preHandler sets req.device, so
+    // the key is derived from the header directly rather than from req.device -
+    // which would be undefined here.
+    keyGenerator: (req) => {
+      const url = req.routeOptions?.url ?? req.url;
+      if (url.startsWith('/api/v1/device')) {
+        const header = req.headers.authorization;
+        const queryToken = (req.query as Record<string, unknown> | undefined)?.token;
+        const raw = header?.startsWith('Bearer ')
+          ? header.slice(7)
+          : typeof queryToken === 'string'
+            ? queryToken
+            : null;
+        // An unauthenticated device request (including /device/pair, which has no
+        // token yet) falls through to the IP key.
+        if (raw) return `device:${hashDeviceToken(raw)}`;
+      }
+      return req.ip;
+    },
   });
   await app.register(multipart, {
     limits: { fileSize: env.MAX_UPLOAD_SIZE_BYTES, files: 1 },
@@ -106,7 +139,13 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
     });
   });
 
-  app.get('/health', async () => ({ status: 'ok', time: new Date().toISOString() }));
+  // Liveness probe. Explicitly exempt from the global rate limit: the container
+  // healthcheck and any uptime monitor poll this, and a 429 here would report a
+  // healthy API as unhealthy.
+  app.get('/health', { config: { rateLimit: false } }, async () => ({
+    status: 'ok',
+    time: new Date().toISOString(),
+  }));
 
   await app.register(authRoutes, { prefix: '/api/v1' });
   await app.register(orgRoutes, { prefix: '/api/v1' });
