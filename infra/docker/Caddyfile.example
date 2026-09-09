@@ -29,4 +29,18 @@ app.example.com { # ❗CHANGE to your real domain
 	request_body {
 		max_size 2GB
 	}
+
+	# HSTS. Set here rather than in nginx because it is a transport-level
+	# statement and Caddy is what terminates TLS. Safe to enable only once
+	# certificates are issuing correctly — see docs/deployment.md §8.
+	#
+	# Deliberately WITHOUT `includeSubDomains` and `preload`. Both are far harder
+	# to undo: includeSubDomains forces HTTPS on every subdomain of this domain,
+	# including ones this server knows nothing about, and preload is effectively
+	# permanent. Add them only as a separate, considered decision.
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		# Caddy advertises itself in Server: by default; no reason to help.
+		-Server
+	}
 }
