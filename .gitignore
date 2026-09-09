@@ -34,6 +34,9 @@ ORIGINAL_PROMPT.txt
 *.bak-*
 *.orig
 *.save
+# infra/backup/restore.sh saves the config it is about to overwrite as
+# <name>.pre-restore.<timestamp>. Those copies hold the database password.
+*.pre-restore.*
 
 # Database dumps and archives. `*.sql` is NOT ignored globally on purpose —
 # packages/database/prisma/migrations/*/migration.sql must stay tracked — so this

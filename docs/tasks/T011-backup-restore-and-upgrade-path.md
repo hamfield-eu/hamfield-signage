@@ -6,7 +6,7 @@
 | **Risk** | **High** — this is the task that decides whether a disk failure is an inconvenience or the end of the product |
 | **Depends on** | T010 (needs a real deployment to back up) |
 | **Blocks** | Every future upgrade. Nothing should be deployed to a customer before this is done and **drilled**. |
-| **Status** | Not started |
+| **Status** | **Phase one complete and deployed** — nightly encrypted verified backups are running. The **restore drill is not done**, so this task is NOT finished. |
 
 > Self-contained by design: a fresh Claude Code session has no memory of the
 > review that produced this file.
@@ -175,12 +175,19 @@ Host-level systemd timer (preferred over cron: better logging, no mail config):
 
 ### 5. Retention policy
 
-Grandfather-father-son, pruned by the script:
+Grandfather-father-son, pruned by the script.
 
-- Keep **7** daily
-- Keep **4** weekly (Sunday)
-- Keep **6** monthly (1st of month)
-- Keep **every pre-upgrade backup for 30 days**, tagged `pre-upgrade-<sha>`
+**As deployed (2026-09-09), this is 14 / 8 / 12, not the 7 / 4 / 6 below.** R2
+storage at this scale is free — ~34 bundles of ~6 MB is about 200 MB, inside the
+free tier — so the retention window is set by "how late can I notice a mistake
+and still recover", not by cost. The original figures are kept here for context:
+
+- Keep **7** daily → **deployed: 14**
+- Keep **4** weekly (Sunday) → **deployed: 8**
+- Keep **6** monthly (1st of month) → **deployed: 12**
+- Keep **every pre-upgrade backup for 30 days**, tagged `pre-upgrade-<sha>` (unchanged)
+
+All four are `KEEP_*` environment overrides in `infra/backup/backup.sh`.
 
 Document the resulting RPO explicitly: with nightly dumps, worst-case data loss
 is ~24 h of dashboard changes plus device telemetry. Device *content* is
@@ -350,3 +357,65 @@ game about whether to wait or roll back.
   (`apps/api/src/lib/tokens.ts`, SHA-256 hashed in `device_tokens`).
 - Schedule the nightly backup outside any window where large media uploads are
   expected, to avoid a dump racing a long transaction.
+
+---
+
+## Field notes from the phase-one implementation (2026-09-09)
+
+Recorded so the drill session does not rediscover them. Everything here was
+found by running the code, not by reading it.
+
+**Found while building `backup.sh` / `verify-backup.sh`:**
+
+1. `pg_isready` returns success against the *temporary* server the official
+   postgres entrypoint runs while initialising a cluster. Waiting on it alone
+   hands back a connection that dies mid-restore with
+   `FATAL: the database system is shutting down`. Wait for the
+   `PostgreSQL init process complete` marker first, then for readiness.
+2. `age` writing its output into the directory `tar` was reading produced
+   `tar: file changed as we read it`. Bundle contents now live in a
+   subdirectory. The failure was safe — no upload, no prune.
+3. Cloudflare's bucket page shows an "S3 API" URL with the bucket name appended
+   as a path. Left as-is, every object key becomes `<bucket>/<bucket>/backups/…`.
+   `load_r2_env` strips the path and validates the host.
+4. R2 answers rclone's post-upload `HEAD` with `501 Not Implemented`. The object
+   lands fine, but rclone retries and logs a spurious failure that would bury a
+   real one. Disabled via `no_head`; `backup.sh` reads the object size back
+   itself, which is a stronger check.
+5. `pg_restore --list` cannot read a custom-format archive from a pipe. It reads
+   the real file inside a throwaway container instead.
+
+**Found in review, before the scripts were committed:**
+
+6. `case "$TAG" in ""|[A-Za-z0-9._-]*)` validates only the **first** character —
+   a glob of that shape means "one allowed char followed by anything", so
+   `a/../../etc` passed. Replaced with an anchored regex. `assert_backup_path`
+   was the only thing catching it.
+7. `verify-backup.sh` did not check that the bundle's **config files** were
+   present. A bundle with a perfect dump and no `config/` would pass — and then
+   restore into a database nobody can authenticate against, since the Postgres
+   password is baked into the volume at creation. It now cross-checks the
+   bundle against the manifest's `config_files:` line.
+8. `restore.sh` step 6 runs `git checkout <bundle sha>`. Now that
+   `infra/backup/` is tracked, restoring a bundle older than that commit
+   **deletes the running script mid-execution**. It now re-execs from a copy in
+   `/tmp` first. This would have fired on the first drill using any of the four
+   bundles taken before 2026-09-09.
+9. `restore.sh` writes `<config>.pre-restore.<timestamp>` into the repo before
+   overwriting. Those hold the database password and were not git-ignored —
+   same class of bug as the `*.bak` gap found during the MinIO cleanup.
+   `.gitignore` now covers them.
+
+**Still open, beyond the drill:**
+
+- `OnFailure` only writes to local syslog — the alert dies with the box it is
+  warning about. A **dead-man's switch** (an external service that alarms on a
+  *missing* ping) is the right shape here: it catches a failed job, a hung job,
+  a dead server and a deleted timer with one mechanism.
+- DB↔storage reconciliation (step 7) is not implemented; `restore.sh` lists it
+  in its closing checklist.
+- No `flock`, so a manual run during the 03:30 timer would overlap. Harmless
+  today (a run takes ~16 s and bundles are timestamped) but worth adding.
+- Media objects are covered against disk failure by R2 durability, but **not
+  against accidental deletion or a compromised media credential**. Enabling
+  object versioning on the media bucket closes that; it belongs to T012.

@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Hamfield Signage backup at 03:30 UTC
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+# Fire a missed run after a reboot rather than silently skipping the night.
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

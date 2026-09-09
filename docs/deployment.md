@@ -563,10 +563,26 @@ dc exec postgres psql -U signage -c "ALTER USER signage WITH PASSWORD 'new-url-s
 
 ## 11. Backups
 
-With R2, object storage durability is handled by Cloudflare — you only need to
-back up **PostgreSQL** (all metadata). Keep a copy of the four git-ignored files
-somewhere safe as well, `.env.prod` above all: it holds the database password, and a
-database you cannot authenticate against is a database you have lost.
+This is automated. See **`infra/backup/README.md`** for what runs, what is
+covered and what is not; the scripts live in `infra/backup/`.
+
+In short: a nightly systemd timer dumps PostgreSQL with `pg_dump -Fc`, bundles it
+with the git-ignored config files and a manifest, **verifies the bundle by
+restoring it into a throwaway container**, encrypts it to an `age` public key and
+ships it to a dedicated Cloudflare R2 bucket. The matching private key is
+deliberately **not** on the server, so the host can create backups but cannot
+read them back.
+
+With R2, object storage durability is handled by Cloudflare — only PostgreSQL and
+the config files need backing up. The config matters as much as the dump:
+`.env.prod` (or the prod override) holds the database password, and a database you
+cannot authenticate against is a database you have lost.
+
+> **A backup that has never been restored is not a backup.** The scripted
+> restore (`infra/backup/restore.sh`) and the fresh-VPS drill that proves it are
+> tracked in T011 and must be exercised, not assumed.
+
+The manual equivalent, still useful for an ad-hoc dump before a risky change:
 
 ```bash
 # PostgreSQL logical dump (run via cron; store off-box)

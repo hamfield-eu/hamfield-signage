@@ -1,0 +1,12 @@
+[Unit]
+Description=Report a failed Hamfield Signage backup (%i)
+
+[Service]
+Type=oneshot
+# ===================================================================
+# PLACEHOLDER. This only writes to the local syslog, which means the
+# alert is on the same box that just failed. If the VPS is gone, so is
+# the alert. REPLACE the ExecStart below with a real off-box notifier
+# (webhook curl, ntfy, email) before relying on this.
+# ===================================================================
+ExecStart=/usr/bin/logger -p user.err -t hamfield-backup "BACKUP FAILED: unit %i did not succeed - run 'journalctl -u %i -n 100' on signage.hamfield.eu"

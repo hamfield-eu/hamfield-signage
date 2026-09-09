@@ -1,0 +1,15 @@
+[Unit]
+Description=Hamfield Signage nightly backup (Postgres + config -> encrypted -> R2)
+Documentation=file:/root/hamfield-signage/infra/backup/README.md
+Wants=docker.service
+After=docker.service network-online.target
+OnFailure=hamfield-backup-failure@%n.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/hamfield-signage
+ExecStart=/root/hamfield-signage/infra/backup/backup.sh
+TimeoutStartSec=3600
+# Be polite to a box that is also serving video.
+Nice=10
+IOSchedulingClass=idle
