@@ -16,4 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-cert
 WORKDIR /app
 COPY --from=build /app /app
 ENV NODE_ENV=production
+# Drop root. The node:22-bookworm-slim base already provides an unprivileged
+# `node` user. /app is world-readable so the app can be read, and the only
+# runtime writes go to os.tmpdir() (/tmp), which stays writable.
+USER node
 CMD ["node", "apps/worker/dist/main.js"]

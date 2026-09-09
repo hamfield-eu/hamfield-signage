@@ -6,7 +6,7 @@
 | **Risk** | Medium — touches auth middleware and proxy config; a mistake can lock out the dashboard or break device connections |
 | **Depends on** | T010 (needs the production topology to harden) |
 | **Blocks** | External/customer use |
-| **Status** | Not started |
+| **Status** | S2, S4, S5, S6, S8, S10 done. S9 partly done (non-root yes, image pruning deferred). Firewall + verification are operator tasks, not done. Nothing deployed yet. |
 
 > Self-contained by design: a fresh Claude Code session has no memory of the
 > review that produced this file.
@@ -361,3 +361,105 @@ on sshd if SSH must be open more broadly.
   logs its own errors and never rethrows (`apps/api/src/lib/audit.ts`).
 - Do the JWT change **after** T011's backup exists — it requires a schema
   migration, and every migration should be preceded by a verified backup.
+
+---
+
+## Outcome (2026-09-09)
+
+### S2 — the finding does not reproduce as written
+
+The file marked it *"LIKELY, not CONFIRMED — verify empirically"*. Verified, and
+it is **not exploitable from the internet**. Measured through a real
+`caddy → nginx → echo` chain:
+
+```
+via caddy         XFF=[172.20.0.5, 172.20.0.4]   <- the spoofed 1.2.3.4 is GONE
+bypassing caddy   XFF=[1.2.3.4, 172.20.0.5]      <- nginx appends blindly
+direct to api     XFF=[1.2.3.4]
+```
+
+**Caddy replaces an inbound `X-Forwarded-For` with the peer address.** The blind
+append happens at nginx, and Caddy is the only thing preventing it. So login
+throttling was never bypassable from outside and audit IPs were never forgeable
+from outside. Regrade this from *High, live* to *fragile*: it is one topology
+change away — a proxy in front (the Cloudflare orange-cloud option
+`docs/deployment.md` documents), a Caddy `trusted_proxies` setting, or any
+container on the Docker network talking to `api:4000` directly.
+
+Fixed anyway, and with a **better fix than the plan**. The file suggested
+`trustProxy: 2`. Replicating fastify's `getTrustProxyFn` over
+`@fastify/proxy-addr` against the measured chains, real client `203.0.113.9`:
+
+| setting | via caddy | caddy bypassed | extra hop injected |
+|---|---|---|---|
+| `true` (was) | correct | SPOOFED | SPOOFED |
+| `2` (planned) | correct | SPOOFED | correct |
+| **address list (shipped)** | correct | correct | correct |
+
+A hop count trusts *positions*, so shifting the chain shifts which entry is
+believed. An address list walks left to the first address that is not one of our
+own proxies — always the real peer, whatever the chain length. Shipped as
+`TRUST_PROXY`, default `loopback, uniquelocal`. Verified on 172.x and 10.x.
+
+Residual, and unavoidable with any XFF-trusting config: a process **inside** the
+Docker network talking straight to `api:4000` can still dictate `req.ip`. That
+requires an already-compromised container.
+
+### S5 — the check had to move
+
+The file said to check in `requireActiveUser`. That would have been bypassable:
+`GET /orgs` (`routes/orgs.ts`) reads `req.user.id` directly and relies only on the
+plugin-wide `authenticateUser` hook, as do other handlers. The check is in
+`authenticateUser`, which now loads the account row and caches it on the request
+so downstream guards reuse it rather than issuing a second query.
+
+`POST /auth/change-password` returns a **fresh token**. Without it the caller
+invalidates its own token, and the web client's `refreshUser()` immediately after
+would 401 and dump the user at the login screen — worst on the forced first-login
+gate. Every other session still dies.
+
+### Extra finding, not in this file
+
+Because `GET /orgs` never called `requireActiveUser`, a **disabled account could
+still list its organizations**. `authenticateUser` now rejects disabled accounts
+uniformly. T018's authorization tests should assert this.
+
+### S9 — half done, and the half that is deferred is named
+
+Done and verified by building and running the images: `api` and `worker` run as
+`USER node` (uid 1000), the Prisma client and its engine binary load as that
+user, `/tmp` stays writable for the upload and transcode temp dirs, and the API
+boots to a database-connection error rather than `EACCES`. `web` moved to
+`nginxinc/nginx-unprivileged` (uid 101) on port **8080** — a non-root process
+cannot bind 80. That port is encoded in four other places, all updated:
+`web-nginx.conf`, `EXPOSE`, the compose port map and healthcheck, and Caddy's
+`reverse_proxy web:8080`.
+
+**Deferred: pruning the runtime stage.** The images still `COPY --from=build
+/app /app`, shipping source and devDependencies (api is ~207 MB). Replacing that
+with `pnpm deploy --prod` is the change most likely to break Prisma's generated
+client and native engine, and it needs a build-and-run verification of every
+image plus a deploy to prove it. It is a size and attack-surface improvement, not
+a privilege one, so it is separable from the `USER` change that actually drops
+root. Track it separately rather than pretending S9 is closed.
+
+### Not done — operator tasks
+
+- **Step 8, the Hetzner Cloud Firewall.** Not applied. Note SSH is currently open
+  to the world (`ufw` is inactive and would not cover Docker-published ports
+  anyway); the task specifies restricting 22 to admin IPs.
+- **Empirical re-verification against production** after deploy: the spoofed-XFF
+  test, `AuditLog.ipAddress` showing real client IPs, a 20-screen site not
+  throttling itself, and watching API memory during an oversized logo upload.
+- **Media-bucket object versioning**, which is the answer to the gap T011 named:
+  R2 durability covers disk failure, not accidental deletion.
+
+### Deploy notes
+
+- Ships a migration (`20260909120000_user_password_changed_at`), additive and
+  nullable, so no session is invalidated by the deploy itself.
+- **Do not rotate `JWT_SECRET` in the same release.** If sessions break you will
+  not know whether it was the rotation or the new `pwdAt` claim. Rotate after S5
+  is confirmed working.
+- The `web` port change means Caddy and the compose file must be updated together
+  with the image rebuild, or the dashboard 502s.

@@ -23,7 +23,8 @@
 
 # Dashboard + REST API + device WebSocket (all same-origin).
 app.example.com { # ❗CHANGE to your real domain
-	reverse_proxy web:80
+	# 8080: the web container runs nginx as a non-root user (infra/docker/web.Dockerfile).
+	reverse_proxy web:8080
 
 	# Allow large media uploads to stream through to the API.
 	request_body {

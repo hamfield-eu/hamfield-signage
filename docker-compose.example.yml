@@ -205,10 +205,10 @@ services:
       context: .
       dockerfile: infra/docker/web.Dockerfile
     ports:
-      - "5173:80"
+      - "5173:8080" # nginx runs unprivileged inside the container, on 8080
     logging: *default-logging
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
       interval: 30s
       timeout: 5s
       retries: 3
