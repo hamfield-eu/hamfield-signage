@@ -465,17 +465,42 @@ root. Track it separately rather than pretending S9 is closed.
 - **Empirical re-verification against production** after deploy: the spoofed-XFF
   test, `AuditLog.ipAddress` showing real client IPs, a 20-screen site not
   throttling itself, and watching API memory during an oversized logo upload.
-- **Media-bucket object versioning**, which is the answer to the gap T011 named:
-  R2 durability covers disk failure, not deletion.
+- **Protecting the media bucket against deletion.** This is the gap T011 named:
+  R2 durability covers hardware failure, not somebody deleting objects.
 
-  Worth knowing what it actually protects: the application almost never deletes
-  media objects. Media deletion is a SOFT delete (`deletedAt` on the row; the
-  objects stay — which is why `reconcile-media.sh` reports orphans). The only
-  `deleteFromS3` calls in the codebase remove a previous org logo on replacement.
-  So versioning guards against a leaked or misused media R2 token, a mistake in
-  the dashboard, and the object-reclaiming retention job **T013 specifies** —
-  which is the first thing that will delete media in bulk. Cost stays low because
-  overwrites and deletes are rare.
+  ⚠ **R2 has no object versioning.** An earlier version of this section told the
+  operator to enable it. That was wrong: `PutBucketVersioning` is listed as *not
+  implemented* in R2's S3 compatibility reference, and there is no dashboard
+  toggle, Wrangler command or API for it. R2 objects do carry a `version`
+  property, but that is an immutable per-upload identifier, not retained history.
+  **There is no undelete on R2.** Verified against the live bucket's Settings page
+  by the owner, 2026-09-09.
+
+  What the bucket settings page actually offers: Bucket Locks (retention
+  policies), Object Lifecycles, custom domains, Sippy migration, R2 Data Catalog.
+
+  So the real options are:
+
+  1. **Bucket Locks** — prevent overwrite/delete for a set duration. The closest
+     thing to the protection wanted. Note it also blocks *legitimate* deletes:
+     the app removes a previous org logo on replacement
+     (`routes/orgs.ts`), which would start failing — harmlessly, since that call
+     is already `.catch()`-wrapped, but it would leave old logos as orphans. And
+     T013's object-reclaiming job could not delete locked objects, so the lock
+     duration and that job's window have to be reconciled deliberately.
+  2. **A copy of the media outside the bucket** — `rclone sync` to a second
+     bucket or provider. The only option that survives the bucket itself being
+     emptied. Costs storage and bandwidth, unlike everything else here.
+  3. Accept the risk, having tightened the credential: the media token is
+     bucket-scoped and was rotated on 2026-09-09.
+
+  Useful context for whichever is chosen: the application almost never deletes
+  media. Deletion is a SOFT delete (`deletedAt` on the row; objects stay — which
+  is why `reconcile-media.sh` reports orphans), and the only `deleteFromS3` call
+  sites remove a previous org logo. The realistic deletion risks are a misused
+  media token, a dashboard mistake, and the bulk-delete job **T013 specifies** —
+  which will be the first code to remove media at scale, and is the strongest
+  argument for putting something in place before T013 lands.
 
 ### Backlog — deprioritised by the owner, 2026-09-09
 

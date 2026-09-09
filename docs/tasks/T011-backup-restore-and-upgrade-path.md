@@ -457,7 +457,10 @@ T013's retention job is therefore what governs backup size, not just server disk
   today (a run takes ~16 s and bundles are timestamped) but worth adding.
 - Media objects are covered against disk failure by R2 durability, but **not
   against accidental deletion or a compromised media credential**. Enabling
-  object versioning on the media bucket closes that; it belongs to T012.
+  nothing currently closes that. R2 has NO object versioning
+  (`PutBucketVersioning` is not implemented), so there is no undelete: the choices
+  are a Bucket Lock retention policy, replicating media to a second bucket, or
+  accepting the risk. See T012's "Protecting the media bucket against deletion".
 
 ---
 
