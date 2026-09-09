@@ -5,6 +5,7 @@ import { getPrisma } from '@signage/database';
 import { getEnv } from './env';
 import { processMediaAsset, type MediaJobData } from './processor';
 import { startLiveness } from './liveness';
+import { startMaintenance } from './maintenance';
 
 const MEDIA_QUEUE_NAME = 'media-processing';
 
@@ -59,6 +60,9 @@ async function main(): Promise<void> {
   const instanceId = `${process.pid}`;
   const liveness = startLiveness(publisher, log, instanceId);
 
+  // Scheduled telemetry retention and alert evaluation (T013).
+  const maintenance = await startMaintenance(prisma, publisher, env, log);
+
   log.info(
     { queue: MEDIA_QUEUE_NAME, concurrency: env.WORKER_CONCURRENCY, instanceId },
     'media worker started',
@@ -67,6 +71,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     log.info({ signal }, 'worker shutting down');
     liveness.stop();
+    await maintenance.close();
     await worker.close();
     publisher.disconnect();
     await prisma.$disconnect();

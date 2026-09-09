@@ -365,6 +365,17 @@ REMOTE_BYTES=$(rclone lsf "${R2_DIR}/" --files-only --include "$BUNDLE_NAME" --f
   || die "remote size ${REMOTE_BYTES} != local size ${ENC_BYTES} - upload is corrupt, nothing was pruned"
 log "upload confirmed: remote size ${REMOTE_BYTES} bytes matches local"
 
+# Record the success where the T013 retention job can see it. That job refuses to
+# delete anything unless a recent backup is recorded, and fails CLOSED when it
+# cannot tell - so this line is what allows pruning to happen at all. Written only
+# after a verified bundle has actually landed off-box.
+if "${COMPOSE[@]}" exec -T redis redis-cli set signage:backup:last-success \
+     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null 2>&1; then
+  log "recorded the backup marker for the retention gate"
+else
+  warn "could not record the backup marker in redis - retention will refuse to delete until this works"
+fi
+
 # ---------------------------------------------------------------------------
 # 7. Prune - only now, after a confirmed successful upload
 # ---------------------------------------------------------------------------
