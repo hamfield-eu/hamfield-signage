@@ -697,6 +697,9 @@ model DeviceHeartbeat {
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
   @@index([deviceId, createdAt])
+  /// Retention deletes by age alone (T013), which cannot use the composite index
+  /// above because its leading column is deviceId.
+  @@index([createdAt])
   @@map("device_heartbeats")
 }
 
@@ -712,6 +715,8 @@ model DeviceLog {
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
   @@index([deviceId, loggedAt])
+  /// Retention deletes by age alone (T013); see the note on device_heartbeats.
+  @@index([loggedAt])
   @@map("device_logs")
 }
 
@@ -740,6 +745,12 @@ model PlaybackEvent {
   @@unique([deviceId, clientEventId])
   @@index([deviceId, occurredAt])
   @@index([organizationId, mediaAssetId, eventType, occurredAt])
+  /// Retention deletes by age alone (T013); see the note on device_heartbeats.
+  @@index([occurredAt])
+  /// playStatsFor (apps/api/src/routes/media.ts) filters on mediaAssetId +
+  /// eventType with no organizationId, so the composite index above cannot serve
+  /// it - its leading column is organizationId.
+  @@index([mediaAssetId, eventType, occurredAt])
   @@map("playback_events")
 }
 
