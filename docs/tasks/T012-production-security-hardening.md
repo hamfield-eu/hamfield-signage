@@ -466,7 +466,24 @@ root. Track it separately rather than pretending S9 is closed.
   test, `AuditLog.ipAddress` showing real client IPs, a 20-screen site not
   throttling itself, and watching API memory during an oversized logo upload.
 - **Media-bucket object versioning**, which is the answer to the gap T011 named:
-  R2 durability covers disk failure, not accidental deletion.
+  R2 durability covers disk failure, not deletion.
+
+  Worth knowing what it actually protects: the application almost never deletes
+  media objects. Media deletion is a SOFT delete (`deletedAt` on the row; the
+  objects stay — which is why `reconcile-media.sh` reports orphans). The only
+  `deleteFromS3` calls in the codebase remove a previous org logo on replacement.
+  So versioning guards against a leaked or misused media R2 token, a mistake in
+  the dashboard, and the object-reclaiming retention job **T013 specifies** —
+  which is the first thing that will delete media in bulk. Cost stays low because
+  overwrites and deletes are rare.
+
+### Backlog — deprioritised by the owner, 2026-09-09
+
+- **Host-level SSH hardening** (`PasswordAuthentication no`, no root login,
+  `unattended-upgrades`, optionally `fail2ban`). Deliberately deferred: port 22 is
+  already restricted to the owner's home IP at the Hetzner Cloud Firewall, so the
+  remaining exposure is small and the work is not blocking anything. Revisit if
+  SSH is ever opened to a wider source range, or before a second admin is added.
 
 ### Deploy notes
 
