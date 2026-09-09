@@ -445,9 +445,23 @@ root. Track it separately rather than pretending S9 is closed.
 
 ### Not done — operator tasks
 
-- **Step 8, the Hetzner Cloud Firewall.** Not applied. Note SSH is currently open
-  to the world (`ufw` is inactive and would not cover Docker-published ports
-  anyway); the task specifies restricting 22 to admin IPs.
+- **Step 8, the Hetzner Cloud Firewall — already in place**, confirmed by the
+  owner on 2026-09-09 and unchanged since the server was built: inbound TCP 22
+  from the owner's home IP only, TCP 80 and 443 from anywhere, ICMP from
+  anywhere, outbound unrestricted. That matches this task's table, so step 8
+  needs no work.
+
+  Correcting an earlier claim in this file: it previously said SSH was "open to
+  the world". That was wrong and was never evidenced. It came from conflating two
+  things — `ufw status` being inactive, which describes only the HOST firewall,
+  and an external port probe finding 22 open, which was run from the owner's home
+  network and therefore from precisely the address the rule permits. Neither
+  observation says anything about the Hetzner Cloud Firewall, which is applied at
+  the network edge and was never inspected.
+
+  A useful limitation to record for anyone re-verifying: a scan from the admin's
+  own network CANNOT confirm that 22 is restricted, because it is the permitted
+  source. Testing that property requires a probe from somewhere else.
 - **Empirical re-verification against production** after deploy: the spoofed-XFF
   test, `AuditLog.ipAddress` showing real client IPs, a 20-screen site not
   throttling itself, and watching API memory during an oversized logo upload.
