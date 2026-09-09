@@ -406,6 +406,41 @@ found by running the code, not by reading it.
    same class of bug as the `*.bak` gap found during the MinIO cleanup.
    `.gitignore` now covers them.
 
+**Restore rehearsal, 2026-09-09 (NOT the drill):**
+
+Run on a workstation, not a fresh VPS, and authorised as a scoped substitute for
+the full drill. Bundle `backup-20260909T155753Z` (5.8 MB) pulled from R2 and
+opened with the real age private key — **the first time any stored bundle had
+been decrypted**. Matching public keys had been confirmed earlier; this proved
+the round trip.
+
+Passed, in 20 seconds:
+
+- decrypt with the real identity; archive contains `db.dump`, `manifest.txt` and
+  all three config files
+- `db.dump` sha256 matches the manifest
+- `pg_restore` into a throwaway `postgres:16-alpine` (`--network none`, no
+  volumes) completes with no errors
+- row counts identical to production: users 2, organizations 1, devices 4,
+  media_assets 70, playlists 4, schedules 3, audit_logs 54
+- `_prisma_migrations` head is `20260624000000_per_device_encoding_tiers`,
+  matching the manifest — so a restore needs no `migrate deploy`
+- **`device_tokens`: 2 rows, both live, both 64-char SHA-256 hashes.** This is
+  what lets a paired device reconnect without re-pairing, and it survives.
+- superadmin `jeff@hamfield.eu` present, `globalRole=superadmin`, 60-char bcrypt
+  hash intact, not disabled
+
+What this does NOT establish, and why the drill still stands: the machine already
+had Docker, the repo and the images, so it says nothing about whether a bare VPS
+plus `docs/deployment.md` plus a bundle is *sufficient*. No stack was started —
+Caddy was never run (an ACME attempt for the production domain risks a
+Let's Encrypt lockout) and the R2 media credentials were never used. `restore.sh`
+itself remains unexecuted end to end, and RTO is still unmeasured.
+
+Also observed, from the manifest: bundle composition is ~99% telemetry —
+`playback_events` 87,615 and `device_heartbeats` 30,733 against 70 media assets.
+T013's retention job is therefore what governs backup size, not just server disk.
+
 **Still open, beyond the drill:**
 
 - `OnFailure` only writes to local syslog — the alert dies with the box it is
