@@ -32,6 +32,11 @@ no memory of the review. Same convention as `docs/todo-encoding-settings.md`.
 | **T017** | [Cache integrity and disk guard](T017-cache-integrity-and-disk-guard.md) | Corrupt cache and full disk are both permanent, unrecoverable states | M | Medium |
 | **T018** | [API authorization and regression tests](T018-api-authorization-and-regression-tests.md) | No route handler has ever been exercised by a test | M–L | Low |
 
+> **T010 status:** the repository half is complete (config templates, `/health`
+> proxy, log caps, healthcheck wiring, docs). The VPS deploy and the 18-item
+> smoke test are still outstanding — see the "Outcome" section at the end of
+> [T010](T010-production-deployment-baseline.md).
+
 ## Notes on ordering
 
 - **T010 → T011 is strict.** Do not run T013's retention job (which deletes
@@ -53,8 +58,9 @@ no memory of the review. Same convention as `docs/todo-encoding-settings.md`.
   after a migration means restore-from-backup (T011).
 - `ALTER TYPE ... ADD VALUE` cannot run inside a transaction in PostgreSQL. Two
   tasks add enum values (T017 `insufficient_storage`; T016 indirectly).
-- Documentation currently contains three confirmed inaccuracies, fixed across
-  T010/T013/T014: the server `/healthz` command in `docs/device-install.md:145`,
-  the "telemetry is pruned" claim in `docs/architecture.md:229`, and the
+- Documentation contained three confirmed inaccuracies, fixed across
+  T010/T013/T014: the server `/healthz` command in `docs/device-install.md:145`
+  (**fixed in T010** — `/health` is now proxied and the doc points at it), the
+  "telemetry is pruned" claim in `docs/architecture.md:229`, and the
   "React player UI" description in `README.md` / `docs/architecture.md`
   (`apps/player` has no React dependency).

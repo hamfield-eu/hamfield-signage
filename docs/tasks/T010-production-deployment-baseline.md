@@ -6,7 +6,7 @@
 | **Risk** | Medium — touches deployment config only, but a mistake here means an exposed database or an unrecoverable server |
 | **Depends on** | Nothing. **This is the first task.** |
 | **Blocks** | T011, T012, T013, T014 |
-| **Status** | Not started |
+| **Status** | **Repo changes complete** — VPS deploy + smoke test still pending (see "Outcome" at the end) |
 
 > Self-contained by design: a fresh Claude Code session has no memory of the review
 > that produced this file, so the context below restates what matters. Same
@@ -328,3 +328,140 @@ gated behind `service_completed_successfully`.
 - Keep the three git-ignored config files backed up off-box **from day one**
   (formalised in T011). Losing `docker-compose.prod.yml` means losing the DB
   password, which means losing the database.
+
+---
+
+## Outcome (repo half)
+
+Everything in this task that lives in the repository is done and verified; the
+half that needs an actual server is not, and cannot be from a workstation.
+
+### Landed
+
+- **`.env.prod.example` (new).** One documented file holding every production
+  secret and host-specific value. Copied to `.env.prod` (git-ignored, `chmod 600`)
+  and passed with `--env-file`.
+- **`infra/docker/docker-compose.prod.example.yml` — no credentials left in
+  YAML.** Every value is now `${VAR:?message}`, read from `.env.prod`.
+  - *Deviation from plan step 3:* the plan said `env_file:`. That would have been
+    silently broken — a service's `environment:` map always wins over `env_file:`,
+    and the base `docker-compose.yml` sets `S3_*`, `DATABASE_URL`, `JWT_SECRET`
+    under `environment:`. An `env_file:` in the override would have been ignored
+    for exactly those keys, so a production deploy would have quietly used
+    `S3_ENDPOINT: http://minio:9000`. Interpolated `environment:` entries in the
+    override *do* win over the base file. Verified with `docker compose config`.
+  - *Filename:* `.env.prod`, not `.env`. `.env` is already the local-dev env file
+    (`.env.example`), and Compose auto-loads it — a stray dev copy on the server
+    would have leaked localhost URLs into production. `--env-file .env.prod`
+    replaces the default `.env` entirely. Verified by planting a hostile `.env`
+    and confirming none of it reached the resolved config.
+  - The `POSTGRES_PASSWORD` / `DATABASE_URL` drift footgun is gone: both derive
+    from one variable, so a mismatch is now structurally impossible.
+  - `logging: json-file` (10 MB × 5) on every long-running service, in **both**
+    compose files — YAML anchors do not cross files.
+  - Commented `minio: ports: !reset []` block for storage model B. This was the
+    real gap flagged in plan step 5: a model-B operator following the old
+    override left the MinIO console on `:9001` open to the internet.
+  - `migrate` now also gets `NODE_ENV=production`.
+- **`docker-compose.example.yml`** — `x-logging` anchor; `healthcheck` on `api`
+  (dependency-free `node -e fetch(/health)`) and `web` (busybox `wget`); log
+  rotation on api/worker/web; a documented persistence block on `volumes:` with
+  the `down -v` warning.
+  - No healthcheck on `worker`: it is a BullMQ consumer with **no HTTP listener**,
+    so there is nothing to probe. A comment says so and points at T013. Adding a
+    liveness endpoint is application work.
+  - `mock-device` was **kept** — it is profile-gated and this file doubles as the
+    dev compose file. Deleting it is a documented production step (§5b) instead.
+- **`infra/docker/web-nginx.conf`** — `location = /health` proxied to
+  `api:4000/health`. **Exact** match, deliberately: T013 adds `/health/ready`,
+  which reports per-dependency detail and must not become public by accident.
+  Config validated with `nginx -t`.
+- **`.gitignore`** — `/.env.prod`.
+- **`docs/deployment.md`** — largely rewritten around the new config model:
+  §0 (four files, secrets in one place, the `.env` vs `.env.prod` trap), §5a–5e,
+  §8 health check now `curl https://<domain>/health` through the proxy, new §8a
+  18-item first-deploy smoke test, §9a rollback (and why a rollback after a
+  migration is a restore, not a checkout), new **§10 Persistence & data safety**
+  (volume table, the `down -v` rule, log caps, how to actually rotate the DB
+  password), and §11–§14 renumbered with corrected troubleshooting rows.
+  - §7 now defines `dc` as a shell **function** that refuses `-v`, replacing the
+    old `alias dc=…`. This matters: bash expands aliases *before* function
+    lookup, so keeping both would have left the alias shadowing the guard and the
+    guard doing nothing. The doc says so explicitly and gives `type dc` as the
+    check.
+  - §6 (where a model-B operator actually lands) now repeats the
+    "uncomment the `minio:` block" warning, not just §5c.
+  - The smoke test's upload item is split in two: one large upload to prove the
+    body survives the proxy chain, and one *over* `MAX_UPLOAD_SIZE_BYTES` to
+    confirm the API rejects it rather than a proxy. The three limits must be
+    ordered `MAX_UPLOAD_SIZE_BYTES` ≤ nginx `client_max_body_size` ≤ Caddy
+    `max_size`, or the API's error never reaches the user. (They currently are:
+    1 GiB ≤ 2g ≤ 2GB.)
+- **`docs/device-install.md:145`** — `curl $SIGNAGE_SERVER_URL/healthz` →
+  `curl -fsS $SIGNAGE_SERVER_URL/health`, with a note that `/healthz` is the
+  device's *own* player server. `infra/device/signage:48,101` were left alone —
+  those call `127.0.0.1:<player_port>/healthz` and are correct.
+
+### Added after review: §15, migrating a live deployment
+
+The task assumed a greenfield first deploy; the actual server is already running
+on the old model (secrets inline in `docker-compose.prod.yml`). `docs/deployment.md`
+now has **§15**, a config-only migration: capture the running resolved config →
+pull → build `.env.prod` from that capture → swap the real files → **diff the
+resolved config as a gate** → apply → rollback by restoring three files.
+
+The procedure was **rehearsed** locally: an old-model deployment was reconstructed
+from `HEAD` with realistic inline secrets, migrated per the doc, and both resolved
+configs diffed. Every credential carried over byte-identically; the only
+differences were the intended ones, and §15.5 lists exactly that diff.
+
+Two hazards found while writing it, both verified against real containers:
+
+- **An unquoted `$` in an env-file value is silently eaten.**
+  `POSTGRES_PASSWORD=abc$def` reaches the container as `abc` — confirmed by
+  running it. For a password carried over from an existing deployment this is
+  silent corruption that surfaces as `P1000`. The fix is single quotes (which
+  disable interpolation entirely; double quotes do not). Documented in §5a, §15.3
+  and `.env.prod.example`.
+- **`JWT_SECRET` rotation does not un-pair devices.** `.env.prod.example`
+  originally claimed it did. Device tokens are random values stored as SHA-256
+  hashes (`apps/api/src/lib/tokens.ts:23,28`, `DeviceToken.tokenHash`), not JWTs —
+  only dashboard sessions are invalidated. Corrected.
+
+Also worth stating plainly, since it is easy to assume otherwise: a `git pull` on
+a running server delivers **only** `infra/docker/web-nginx.conf` (committed, baked
+into the `web` image). Everything else in this task lives in git-ignored real
+files and reaches the box only through §15. §9 now says so.
+
+### Correction to this task file
+
+Gap #2 above says healthchecks matter because `restart: unless-stopped` "never
+restarts an *unhealthy* container". Plain Docker/Compose does not restart on
+unhealthy either — health status only drives `depends_on: condition:
+service_healthy` at startup, and restart-on-unhealthy in Swarm mode. What the new
+healthchecks buy is `docker compose ps` visibility and startup gating. Acting on
+an unhealthy container needs an external supervisor; that belongs to T013/T014.
+The docs are written that way.
+
+### Verified
+
+- `docker compose --env-file .env.prod -f docker-compose.yml -f infra/docker/docker-compose.prod.yml config`
+  resolves cleanly; `api`/`worker`/`migrate` all carry production values, and
+  `caddy` is the only service publishing host ports (`minio` still does in the
+  base file, which is why §5b tells the operator to delete it).
+- A missing secret fails at `config` time, naming the variable.
+- A planted local-dev `.env` does not reach the resolved config.
+- `nginx -t` passes on the new `web-nginx.conf`.
+- `prettier --check` clean on both edited docs.
+
+### Not done — needs the server
+
+None of this can be closed from a workstation. Carry it into the first deploy:
+
+- The whole of §8a (18 items), in particular the external `nmap` port audit, the
+  TLS issuance, the >100 MB upload, the WebSocket upgrade through
+  Caddy → nginx → api, the reboot test, and `up -d --build` twice being
+  idempotent.
+- The acceptance criteria in this file remain **unticked** for that reason.
+- Deploy to a throwaway VPS first, and take a snapshot before the first `up` —
+  that is still the only rollback that exists until T011 lands.

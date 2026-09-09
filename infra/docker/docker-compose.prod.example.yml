@@ -1,103 +1,161 @@
 # ──────────────────────────────────────────────────────────────────────────────
 #  Hamfield Signage — PRODUCTION override TEMPLATE
 # ──────────────────────────────────────────────────────────────────────────────
-#  Copy to the real (git-ignored) file and edit the marked values:
+#  Copy to the real (git-ignored) file:
 #
 #      cp infra/docker/docker-compose.prod.example.yml \
 #         infra/docker/docker-compose.prod.yml
 #
-#  This file layers on top of docker-compose.yml and is the SINGLE place that
-#  holds production configuration & secrets:
-#    - real database password + connection string,
-#    - JWT secret, public URL, CORS origins,
-#    - external object storage (Cloudflare R2) credentials,
-#    - NODE_ENV=production, restart policies, no public host ports,
+#  This file layers on top of docker-compose.yml and turns the dev stack into a
+#  production one:
+#    - NODE_ENV=production, restart policies, capped container logs,
+#    - no public host ports (only caddy publishes 80/443),
 #    - a Caddy reverse proxy that terminates TLS for ONE domain
 #      (dashboard + REST API + device WebSocket are all same-origin).
 #
+#  ── SECRETS DO NOT LIVE IN THIS FILE ────────────────────────────────────────
+#  Every secret and host-specific value is read from a single git-ignored env
+#  file at the repository root:
+#
+#      cp .env.prod.example .env.prod
+#      chmod 600 .env.prod
+#      $EDITOR .env.prod
+#
+#  It must be passed explicitly on every compose command, with --env-file.
+#
+#  --env-file also *replaces* Compose's default `.env`, which is exactly what we
+#  want here: `.env` is the LOCAL dev env file (see .env.example), full of
+#  localhost URLs and MinIO defaults. A stray copy of it on the server can never
+#  bleed into production this way.
+#
+#  The `${VAR:?...}` form below means "fail loudly if this is unset" — a missing
+#  secret stops `docker compose` before anything starts, instead of silently
+#  booting with a dev default. Forgetting --env-file therefore also fails loudly.
+#
+#  Why interpolation and not `env_file:`? Because a service's `environment:` map
+#  always wins over `env_file:`, and the base docker-compose.yml already sets
+#  S3_*, DATABASE_URL and friends under `environment:`. An `env_file:` here
+#  would be silently ignored for exactly the values that matter. Interpolated
+#  `environment:` entries in this override, by contrast, always win over the
+#  base file — which is what we want.
+#
 #  Run both files together (see docs/deployment.md):
-#      docker compose -f docker-compose.yml \
-#                     -f infra/docker/docker-compose.prod.yml up -d --build
-#
-#  NOTE: this production setup uses external object storage (R2), so the base
-#  file's `minio` / `minio-setup` services should be removed (see that file).
-#
-#  Everything you MUST change is marked with  # ❗CHANGE
+#      docker compose --env-file .env.prod \
+#        -f docker-compose.yml \
+#        -f infra/docker/docker-compose.prod.yml up -d --build
 # ──────────────────────────────────────────────────────────────────────────────
 
-# ── Edit these two anchors and you've configured almost everything ──────────────
 # Database URL — reused by migrate/api/worker so the credentials can never drift.
-x-database-url: &database-url postgresql://signage:CHANGE_ME_STRONG_DB_PASSWORD@postgres:5432/signage # ❗CHANGE the password (must equal POSTGRES_PASSWORD below)
+# The password comes from the same POSTGRES_PASSWORD used by the postgres
+# service below, so a mismatch (the classic "P1000 authentication failed") is
+# now structurally impossible.
+x-database-url: &database-url postgresql://signage:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}@postgres:5432/signage
 
-# Cloudflare R2 credentials — reused by api and worker. ❗CHANGE all five.
-#   - Account endpoint:  https://<ACCOUNT_ID>.r2.cloudflarestorage.com
-#   - Access key / secret: created under R2 → "Manage R2 API Tokens"
-#   - Region is literally "auto" for R2; path-style addressing is required.
-x-r2-credentials: &r2-credentials
-  S3_ENDPOINT: https://CHANGE_ME_ACCOUNT_ID.r2.cloudflarestorage.com # ❗CHANGE
-  S3_REGION: auto
-  S3_BUCKET: signage-media # ❗CHANGE if your R2 bucket has a different name
-  S3_ACCESS_KEY: CHANGE_ME_R2_ACCESS_KEY_ID # ❗CHANGE
-  S3_SECRET_KEY: CHANGE_ME_R2_SECRET_ACCESS_KEY # ❗CHANGE
-  S3_FORCE_PATH_STYLE: "true"
-# ────────────────────────────────────────────────────────────────────────────────
+# Object-storage credentials — reused by api and worker.
+# For Cloudflare R2: endpoint is https://<ACCOUNT_ID>.r2.cloudflarestorage.com,
+# region is literally "auto", path-style addressing is required.
+x-s3-credentials: &s3-credentials
+  S3_ENDPOINT: ${S3_ENDPOINT:?set S3_ENDPOINT in .env.prod}
+  S3_REGION: ${S3_REGION:-auto}
+  S3_BUCKET: ${S3_BUCKET:-signage-media}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in .env.prod}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env.prod}
+  S3_FORCE_PATH_STYLE: "${S3_FORCE_PATH_STYLE:-true}"
+
+# Log rotation. YAML anchors do NOT cross compose files, so this repeats the
+# `x-logging` anchor from docker-compose.yml. Without it the json-file logs of a
+# long-running container grow until they fill the host disk.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
 
 services:
-  # NOTE: `!reset []` clears the host port published by the base file so it is
-  # internal-only in production. It requires Docker Compose v2.24.4+. On older
-  # Compose, instead delete the `ports:` mappings from your base docker-compose.yml.
+  # NOTE: `ports: !reset []` clears the host port published by the base file so
+  # the service is reachable only on the private Docker network. It requires
+  # Docker Compose v2.24.4+ (`docker compose version`). On older Compose,
+  # physically delete the `ports:` mappings from your docker-compose.yml instead.
   postgres:
     restart: unless-stopped
     ports: !reset [] # internal only
+    logging: *default-logging
     environment:
-      POSTGRES_PASSWORD: CHANGE_ME_STRONG_DB_PASSWORD # ❗CHANGE — must match the password in x-database-url
+      # Must be byte-identical to the password inside x-database-url above —
+      # which it is, because both read the same variable.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
 
   redis:
     restart: unless-stopped
     ports: !reset [] # internal only
+    logging: *default-logging
+
+  # ── Self-hosted MinIO (storage model B) ─────────────────────────────────────
+  # Only relevant if you KEPT the minio/minio-setup services in your
+  # docker-compose.yml instead of using external object storage. Uncomment to
+  # take the S3 API (9000) and the admin CONSOLE (9001) off the public internet.
+  # Leaving them published exposes the MinIO console to the world.
+  #
+  # minio:
+  #   restart: unless-stopped
+  #   ports: !reset [] # internal only — reach the console via an SSH tunnel
+  #   logging: *default-logging
+  # ────────────────────────────────────────────────────────────────────────────
 
   migrate:
+    logging: *default-logging
     environment:
+      NODE_ENV: production
       DATABASE_URL: *database-url
 
   api:
     restart: unless-stopped
     ports: !reset [] # reached only through caddy -> web -> api
+    logging: *default-logging
     environment:
-      <<: *r2-credentials
+      <<: *s3-credentials
       NODE_ENV: production
       DATABASE_URL: *database-url
-      # Public base URL of the dashboard + API. Must be HTTPS and match Caddyfile.
-      API_PUBLIC_URL: https://app.example.com # ❗CHANGE
-      CORS_ORIGINS: https://app.example.com # ❗CHANGE (your dashboard origin only)
+      # Public base URL of the dashboard + API. Must be HTTPS and match the
+      # domain in infra/docker/Caddyfile.
+      API_PUBLIC_URL: ${API_PUBLIC_URL:?set API_PUBLIC_URL in .env.prod}
+      # Your dashboard origin only — not a wildcard.
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS in .env.prod}
       # Generate with:  openssl rand -hex 32
-      JWT_SECRET: CHANGE_ME_OPENSSL_RAND_HEX_32 # ❗CHANGE
-      # Browser-facing object-storage endpoint used inside presigned URLs.
-      # For R2 this is the SAME account endpoint as S3_ENDPOINT above.
-      S3_PUBLIC_ENDPOINT: https://CHANGE_ME_ACCOUNT_ID.r2.cloudflarestorage.com # ❗CHANGE
-      MAX_UPLOAD_SIZE_BYTES: 1073741824
+      # apps/api/src/env.ts refuses to start under NODE_ENV=production if this
+      # is left at the dev placeholder. That is deliberate.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env.prod}
+      # Browser-facing object-storage endpoint baked into presigned URLs.
+      # For R2 this is the SAME account endpoint as S3_ENDPOINT.
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:?set S3_PUBLIC_ENDPOINT in .env.prod}
+      MAX_UPLOAD_SIZE_BYTES: ${MAX_UPLOAD_SIZE_BYTES:-1073741824}
       # First-run superadmin (created once if none exists; min 12 chars).
-      INITIAL_SUPERADMIN_EMAIL: admin@example.com # ❗CHANGE
-      INITIAL_SUPERADMIN_PASSWORD: CHANGE_ME_STRONG_12+ # ❗CHANGE
-      INITIAL_SUPERADMIN_NAME: Platform Admin # ❗CHANGE
+      # Safe to blank out again after the first successful boot.
+      INITIAL_SUPERADMIN_EMAIL: ${INITIAL_SUPERADMIN_EMAIL:-}
+      INITIAL_SUPERADMIN_PASSWORD: ${INITIAL_SUPERADMIN_PASSWORD:-}
+      INITIAL_SUPERADMIN_NAME: ${INITIAL_SUPERADMIN_NAME:-}
 
   worker:
     restart: unless-stopped
+    logging: *default-logging
     environment:
-      <<: *r2-credentials
+      <<: *s3-credentials
       NODE_ENV: production
       DATABASE_URL: *database-url
-      WORKER_CONCURRENCY: 2
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
 
   web:
     restart: unless-stopped
     ports: !reset [] # reached only through caddy
+    logging: *default-logging
 
   caddy:
     image: caddy:2
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       - web
+    # The ONLY service that publishes host ports in production.
     ports:
       - "80:80"
       - "443:443"
@@ -106,6 +164,16 @@ services:
       - caddy-data:/data
       - caddy-config:/config
 
+# ── Persistence ─────────────────────────────────────────────────────────────────
+# Added by this override on top of postgres-data / redis-data / minio-data in
+# docker-compose.yml (which documents their backup criticality).
+#
+#   caddy-data    TLS certificates + the ACME account key. Not irreplaceable —
+#                 Caddy re-issues automatically — but restoring it avoids
+#                 Let's Encrypt rate limits after a rebuild.
+#   caddy-config  Caddy's autosaved config.
+#
+# ⚠ NEVER run `docker compose down -v`. See docs/deployment.md §10.
 volumes:
   caddy-data:
   caddy-config:

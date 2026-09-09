@@ -137,10 +137,10 @@ new pairing code, then on the device run `signage pair <CODE>`.
 
 ## Troubleshooting
 
-| Symptom                   | Check                                                                                       |
-| ------------------------- | ------------------------------------------------------------------------------------------- |
-| Screen shows "not paired" | `signage logs -f` — wrong/expired code? Run `signage pair <new code>`.                      |
-| Black screen / no X       | `signage player-logs`; confirm `/etc/X11/Xwrapper.config` has `allowed_users=anybody`.      |
-| Online but stale content  | `signage status` (sync state), dashboard → screen → Sync status; `refresh_content` command. |
-| Media won't download      | Server URL reachable over HTTPS from the device? `curl -v $SIGNAGE_SERVER_URL/healthz`.     |
-| Disk filling up           | Cache is pruned to the manifest; check `/var/lib/signage/media` vs. assigned playlists.     |
+| Symptom                   | Check                                                                                                                                                                               |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Screen shows "not paired" | `signage logs -f` — wrong/expired code? Run `signage pair <new code>`.                                                                                                              |
+| Black screen / no X       | `signage player-logs`; confirm `/etc/X11/Xwrapper.config` has `allowed_users=anybody`.                                                                                              |
+| Online but stale content  | `signage status` (sync state), dashboard → screen → Sync status; `refresh_content` command.                                                                                         |
+| Media won't download      | Server URL reachable over HTTPS from the device? `curl -fsS $SIGNAGE_SERVER_URL/health` → `{"status":"ok",…}`. (`/healthz` is this device's _own_ player server, not the server's.) |
+| Disk filling up           | Cache is pruned to the manifest; check `/var/lib/signage/media` vs. assigned playlists.                                                                                             |

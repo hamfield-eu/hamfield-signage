@@ -32,6 +32,16 @@ name: signage-platform
 # (mismatched copies are the classic "P1000 authentication failed" cause).
 x-database-url: &database-url postgresql://signage:signage@postgres:5432/signage # ❗CHANGE the password (and keep it identical to POSTGRES_PASSWORD below)
 
+# Container log rotation. Without this, `docker logs` json files grow without
+# bound and eventually fill the host disk. Applied to every long-running service
+# we own (api, worker, web); the prod override adds caddy and repeats this
+# anchor, because YAML anchors do NOT cross compose files.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -133,6 +143,25 @@ services:
       INITIAL_SUPERADMIN_NAME: ${INITIAL_SUPERADMIN_NAME:-}
     ports:
       - "4000:4000"
+    logging: *default-logging
+    # Liveness probe. `/health` is dependency-free by design, so this reports
+    # "is the HTTP server answering", not "are Postgres/Redis/S3 reachable".
+    # The deep readiness check (/health/ready) is T013.
+    # NOTE: Docker/Compose does NOT restart an unhealthy container -- `restart:`
+    # only reacts to a *crash*. This gives `docker compose ps` visibility and
+    # lets other services gate on `condition: service_healthy`.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
@@ -157,6 +186,10 @@ services:
       S3_SECRET_KEY: signage-secret
       S3_FORCE_PATH_STYLE: "true"
       WORKER_CONCURRENCY: 2
+    logging: *default-logging
+    # No healthcheck: the worker is a BullMQ consumer with no HTTP listener, so
+    # there is nothing to probe from outside the process. Adding a liveness
+    # endpoint (or a heartbeat key in Redis) is application work -- see T013.
     depends_on:
       postgres:
         condition: service_healthy
@@ -173,6 +206,13 @@ services:
       dockerfile: infra/docker/web.Dockerfile
     ports:
       - "5173:80"
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
       - api
 
@@ -191,6 +231,25 @@ services:
     depends_on:
       - api
 
+# ── Persistence ─────────────────────────────────────────────────────────────────
+# All state lives in NAMED volumes so `docker compose up -d --build` (the normal
+# upgrade path) never touches it. There are no anonymous volumes: verify with
+# `docker volume ls`.
+#
+#   postgres-data  orgs, users, devices, playlists, schedules, media rows, audit
+#                  log. BACKUP-CRITICAL -- irreplaceable.
+#   redis-data     BullMQ queue state + pub/sub. Rebuildable; losing it drops
+#                  in-flight jobs, which can be re-queued by re-processing media.
+#   minio-data     media objects. BACKUP-CRITICAL *if* you self-host MinIO;
+#                  irrelevant when using external object storage (R2).
+#
+# ⚠ NEVER run `docker compose down -v` on a real deployment. The `-v` flag
+#   deletes these volumes, which means deleting the database. `down` on its own
+#   is safe. See docs/deployment.md §10.
+#
+# The Postgres password is baked into `postgres-data` when the volume is first
+# created. Changing POSTGRES_PASSWORD later without also changing DATABASE_URL
+# produces the P1000 failure documented in docs/deployment.md §14.
 volumes:
   postgres-data:
   redis-data:

@@ -20,6 +20,9 @@ ORIGINAL_PROMPT.txt
 
 # Real, deployable compose / proxy config (contain secrets & host-specific
 # values). Copy from the committed *.example.* templates — see docs/deployment.md.
+# Production secrets live in /.env.prod (copied from .env.prod.example). The
+# separate LOCAL dev env file, /.env (from .env.example), is ignored above.
 /docker-compose.yml
 /infra/docker/docker-compose.prod.yml
 /infra/docker/Caddyfile
+/.env.prod
