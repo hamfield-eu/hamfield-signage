@@ -4,6 +4,7 @@ import pino from 'pino';
 import { getPrisma } from '@signage/database';
 import { getEnv } from './env';
 import { processMediaAsset, type MediaJobData } from './processor';
+import { startLiveness } from './liveness';
 
 const MEDIA_QUEUE_NAME = 'media-processing';
 
@@ -53,13 +54,19 @@ async function main(): Promise<void> {
     log.error({ err }, 'worker: queue error');
   });
 
+  // Liveness for the container healthcheck and the API's /health/ready. Started
+  // after the Worker so it only reports alive once the queue is actually attached.
+  const instanceId = `${process.pid}`;
+  const liveness = startLiveness(publisher, log, instanceId);
+
   log.info(
-    { queue: MEDIA_QUEUE_NAME, concurrency: env.WORKER_CONCURRENCY },
+    { queue: MEDIA_QUEUE_NAME, concurrency: env.WORKER_CONCURRENCY, instanceId },
     'media worker started',
   );
 
   const shutdown = async (signal: string) => {
     log.info({ signal }, 'worker shutting down');
+    liveness.stop();
     await worker.close();
     publisher.disconnect();
     await prisma.$disconnect();

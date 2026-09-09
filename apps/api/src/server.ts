@@ -11,6 +11,7 @@ import { HttpError } from './lib/errors';
 import { WsHub } from './lib/ws-hub';
 import { makeDeviceAuth } from './plugins/auth';
 import { hashDeviceToken } from './lib/tokens';
+import { readyReport } from './lib/health';
 import { authRoutes } from './routes/auth';
 import { orgRoutes } from './routes/orgs';
 import { deviceRoutes } from './routes/devices';
@@ -146,6 +147,20 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
     status: 'ok',
     time: new Date().toISOString(),
   }));
+
+  // Deep readiness. Registered OUTSIDE the /api/v1 prefix on purpose, which means
+  // infra/docker/web-nginx.conf does not proxy it: that file proxies `/api/` and
+  // an EXACT `= /health`, so this is reachable only from inside the Docker
+  // network. That is deliberate - it names each dependency and its latency, which
+  // is a diagnostic surface, not a public one. Reach it with:
+  //   docker compose exec api node -e "fetch('http://127.0.0.1:4000/health/ready').then(r=>r.text()).then(console.log)"
+  //
+  // 503 when a hard dependency is down so it is scriptable; 200 when merely
+  // degraded, because degraded still serves traffic.
+  app.get('/health/ready', async (_req, reply) => {
+    const report = await readyReport(prisma);
+    return reply.status(report.status === 'down' ? 503 : 200).send(report);
+  });
 
   await app.register(authRoutes, { prefix: '/api/v1' });
   await app.register(orgRoutes, { prefix: '/api/v1' });

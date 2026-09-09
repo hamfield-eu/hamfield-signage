@@ -187,9 +187,22 @@ services:
       S3_FORCE_PATH_STYLE: "true"
       WORKER_CONCURRENCY: 2
     logging: *default-logging
-    # No healthcheck: the worker is a BullMQ consumer with no HTTP listener, so
-    # there is nothing to probe from outside the process. Adding a liveness
-    # endpoint (or a heartbeat key in Redis) is application work -- see T013.
+    # The worker has no HTTP listener, so it refreshes /tmp/signage-worker-alive
+    # every 30s (apps/worker/src/liveness.ts) and this checks that the file is
+    # fresh. Deliberately a FILE and not the Redis key the API reads: a Redis blip
+    # must not mark the worker unhealthy, because restarting it mid-transcode
+    # throws away minutes of CPU for a job BullMQ would have retried anyway.
+    # A stale mtime means the event loop is wedged, which a process check misses.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "[ -f /tmp/signage-worker-alive ] && [ $(( $(date +%s) - $(stat -c %Y /tmp/signage-worker-alive) )) -lt 120 ]",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     depends_on:
       postgres:
         condition: service_healthy
