@@ -36,11 +36,20 @@ no memory of the review. Same convention as `docs/todo-encoding-settings.md`.
 > proxy, log caps, healthcheck wiring, docs). The VPS deploy and the 18-item
 > smoke test are still outstanding — see the "Outcome" section at the end of
 > [T010](T010-production-deployment-baseline.md).
+>
+> **T011 status:** nightly encrypted, verified, off-box backups are running on
+> `signage.hamfield.eu`, and DB↔storage reconciliation is implemented. The
+> fresh-VPS drill is **waived by the owner (2026-09-09)**; RTO is therefore
+> unmeasured and `restore.sh` is unproven end to end. See "Drill waiver" in
+> [T011](T011-backup-restore-and-upgrade-path.md).
 
 ## Notes on ordering
 
 - **T010 → T011 is strict.** Do not run T013's retention job (which deletes
-  production data) or any schema migration before a verified, drilled backup exists.
+  production data) or any schema migration before a verified backup exists.
+  As of 2026-09-09 backups exist and are verified nightly, so this gate is open —
+  but note the drill was waived, so "verified" means "the dump restores in a
+  container", not "recovery has been rehearsed".
 - **T014 is written last but touched throughout.** Each of T010–T013 contributes
   a section; T014 is where they become one operable document, and it must be
   re-verified after T016 changes device operations.

@@ -6,7 +6,7 @@
 | **Risk** | **High** — this is the task that decides whether a disk failure is an inconvenience or the end of the product |
 | **Depends on** | T010 (needs a real deployment to back up) |
 | **Blocks** | Every future upgrade. Nothing should be deployed to a customer before this is done and **drilled**. |
-| **Status** | **Phase one complete and deployed** — nightly encrypted verified backups are running. The **restore drill is not done**, so this task is NOT finished. |
+| **Status** | Backups running and verified. Fresh-VPS drill **waived by the owner, 2026-09-09** (see "Drill waiver"). Three acceptance items remain open. |
 
 > Self-contained by design: a fresh Claude Code session has no memory of the
 > review that produced this file.
@@ -296,27 +296,31 @@ game about whether to wait or roll back.
 
 ## Acceptance criteria
 
-- [ ] `backup.sh` runs unattended nightly and produces an encrypted bundle
+- [x] `backup.sh` runs unattended nightly and produces an encrypted bundle
       containing the DB dump, all config files, and a manifest with the git SHA
       and schema version.
-- [ ] The bundle lands **off the VPS** automatically, on storage that cannot be
-      deleted with credentials held on the VPS.
-- [ ] `verify-backup.sh` runs after every backup and the systemd unit fails
-      loudly (with a notification) if verification fails.
-- [ ] Retention prunes correctly and keeps pre-upgrade backups for 30 days.
-- [ ] **The drill has been performed:** a completely fresh VPS was provisioned
-      and restored from a backup bundle alone, with no access to the original
-      server, and the result was verified against the checklist below. The date
-      and outcome are recorded in the runbook (T014).
-- [ ] Restoring produces a stack where: superadmin login works; orgs, users,
-      devices, playlists and schedules are all present; a previously paired
-      device reconnects and syncs **without re-pairing** (device tokens are in
-      the DB, hashed, so this must work); media downloads succeed; the audit log
-      is intact.
+- [~] The bundle lands **off the VPS** automatically — on a dedicated R2 bucket
+      the application's own credential cannot reach. **Partial:** the backup
+      token itself lives on the VPS and *can* delete bundles. Closing this needs
+      R2 Bucket Lock on the `backups/` prefix, or a pull-based second copy.
+- [~] `verify-backup.sh` runs after every backup and the unit fails on a bad
+      bundle. **Partial:** the notification is still the local-syslog
+      placeholder, so the alert dies with the box it is warning about.
+- [x] Retention prunes correctly and keeps pre-upgrade backups for 30 days.
+      Verified against a fabricated 400-day history: 14/8/12 exactly, weeklies
+      all Sundays, monthlies all 1sts, unparseable names kept and flagged.
+- [~] **WAIVED by the owner, 2026-09-09.** The fresh-VPS drill was not performed.
+      See "Drill waiver" below for the evidence accepted in its place and the
+      residual risk.
+- [~] Restoring produces a working stack. **Evidenced, not proven:** the
+      rehearsal confirmed the *data* survives — superadmin with an intact bcrypt
+      hash, 2 live device tokens as valid SHA-256 hashes, all row counts, the
+      audit log. It did **not** start a stack, so "login works" and "a device
+      reconnects" remain inferred from the data rather than observed.
 - [ ] The upgrade procedure is documented and has been executed at least once on
       a non-production host.
 - [ ] The rollback table above is documented with measured durations.
-- [ ] `infra/backup/README.md` states plainly what is **not** backed up (Redis,
+- [x] `infra/backup/README.md` states plainly what is **not** backed up (Redis,
       images, in-flight jobs) and what that costs.
 
 ---
@@ -454,3 +458,38 @@ T013's retention job is therefore what governs backup size, not just server disk
 - Media objects are covered against disk failure by R2 durability, but **not
   against accidental deletion or a compromised media credential**. Enabling
   object versioning on the media bucket closes that; it belongs to T012.
+
+---
+
+## Drill waiver — 2026-09-09
+
+The fresh-VPS restore drill is **deliberately not performed**, waived by the
+project owner. Recorded here rather than quietly dropped, so a future reader
+knows this was a decision and not an oversight.
+
+**Evidence accepted in its place** (all from the 2026-09-09 rehearsal above):
+
+- a real bundle from R2 decrypts with the real age private key
+- its `db.dump` matches the manifest SHA-256 and restores with `pg_restore
+  --exit-on-error` clean
+- row counts match production exactly, and the `_prisma_migrations` head matches
+  the manifest, so no `migrate deploy` is needed on restore
+- `device_tokens` and the superadmin bcrypt hash survive intact
+- all three config files — including the database password — are in the bundle
+
+**Residual risk, unchanged by the waiver:**
+
+- `restore.sh` has never run to completion. Only its refusal paths are proven.
+  A bug in steps 5-9 would be discovered during an actual outage.
+- **RTO is unmeasured.** Nobody knows whether recovery takes 30 minutes or a day.
+- It is unproven that `docs/deployment.md` plus a bundle is *sufficient* to
+  rebuild from bare metal. Any undocumented step on the current host is invisible
+  until it is needed.
+- The rehearsal ran on a machine that already had Docker, the repository and the
+  images cached, so it says nothing about provisioning.
+
+**Cheapest way to retire this later**, if the appetite returns: a throwaway
+Hetzner VPS for an hour or two costs roughly a euro. The drill is
+T010 first-deploy → `restore.sh` with the latest bundle → the smoke test. Timing
+it also fills in the RTO and the rollback durations, which closes two of the
+three remaining acceptance items in the same sitting.
