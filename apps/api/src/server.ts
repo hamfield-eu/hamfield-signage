@@ -6,7 +6,7 @@ import websocket from '@fastify/websocket';
 import { ZodError } from 'zod';
 import type { PrismaClient } from '@signage/database';
 import { getPrisma } from '@signage/database';
-import { corsOrigins, getEnv } from './env';
+import { corsOrigins, getEnv, trustProxy } from './env';
 import { HttpError } from './lib/errors';
 import { WsHub } from './lib/ws-hub';
 import { makeDeviceAuth } from './plugins/auth';
@@ -48,7 +48,12 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
             transport: env.NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined,
           },
     bodyLimit: 10 * 1024 * 1024, // JSON bodies (screenshots use base64, capped here)
-    trustProxy: true,
+    // NOT `true`. Trusting every hop means the leftmost X-Forwarded-For entry
+    // wins, and nginx appends rather than replaces ($proxy_add_x_forwarded_for),
+    // so anything that reaches nginx without passing Caddy first can dictate
+    // req.ip - which keys the login/pairing rate limits and is written to the
+    // audit log. See trustProxy() in ./env for the measurements.
+    trustProxy: trustProxy(),
   });
 
   const prisma = options.prisma ?? getPrisma();
