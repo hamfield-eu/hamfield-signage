@@ -249,10 +249,16 @@ cat <<DONE
       audit log intact.
    2. Confirm a previously paired device reconnects WITHOUT re-pairing
       (device tokens are hashed in the DB, so this must work).
-   3. DB <-> object storage reconciliation (T011 step 7): the database and R2 were
-      captured at different instants. Walk media_assets and HEAD each
-      originalStorageKey / processedStorageKey. Rows whose objects are missing
-      show as 'ready' but download 404. This check is NOT implemented here.
+   3. DB <-> object storage reconciliation (T011 step 7): the database and R2
+      were captured at different instants, so the restore may be skewed. Run:
+
+          ./infra/backup/reconcile-media.sh
+
+      It exits non-zero if a live row references an object that is not in the
+      media bucket - those assets show as 'ready' and 404 on download. Orphaned
+      objects are reported but are harmless. It is left as a separate command
+      rather than run automatically here, because a restore that succeeded with
+      known skew should not be reported as a failed restore.
    4. If there is any suspicion the bundle was exposed, rotate JWT_SECRET.
       That logs every dashboard user out but does NOT affect devices.
 

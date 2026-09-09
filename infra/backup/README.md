@@ -128,6 +128,9 @@ of the app's credentials must not reach the backups, and vice versa.
 ./infra/backup/verify-backup.sh --plain <dir|tar.gz>
 ./infra/backup/verify-backup.sh --encrypted <bundle.age> --identity <key>
 
+./infra/backup/reconcile-media.sh                 # DB <-> media storage skew
+./infra/backup/reconcile-media.sh --from-dir DIR  # compare pre-computed sets
+
 ./infra/backup/restore.sh --bundle <bundle.age> --identity <key>   # DESTRUCTIVE
 ```
 
@@ -140,7 +143,10 @@ of the app's credentials must not reach the backups, and vice versa.
 2. **A real failure notification.** `hamfield-backup-failure@.service` currently
    only writes to local syslog - the alert dies with the box it is warning about.
    Replace its `ExecStart` with an off-box notifier.
-3. **DB <-> object storage reconciliation** (T011 step 7). Not implemented.
+3. ~~DB <-> object storage reconciliation (T011 step 7)~~ - **done**, see
+   `reconcile-media.sh`. Run it after any restore. It is read-only against the
+   media bucket (`rclone lsf` and nothing else); the media bucket holds all
+   customer content and is not covered by these backups.
 4. **`restore.sh` has never been executed.** It is written but unproven; the
    drill is what proves it.
 5. **Rotate the R2 backup token** if it has ever been exposed.
