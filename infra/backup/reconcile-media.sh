@@ -36,6 +36,15 @@
 set -euo pipefail
 umask 077
 
+# Every conclusion here rests on `comm` over `sort -u` output. Under a UTF-8
+# locale, collation can rank two DISTINCT strings as equal (punctuation is
+# weighted weakly), and `comm` would then pair a missing key with a similarly
+# named present one - a false clean, which is the one result this script must
+# never produce. Byte-order comparison removes the possibility. Storage keys are
+# ASCII today (sanitizeFilename collapses anything else), so this changes no
+# current output; it stops a future key format from quietly breaking the check.
+export LC_ALL=C
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 DB_SERVICE="${DB_SERVICE:-postgres}"
@@ -126,12 +135,21 @@ else
   S3_AK=$(g S3_ACCESS_KEY); S3_SK=$(g S3_SECRET_KEY)
   [ -n "$S3_ENDPOINT" ] && [ -n "$S3_AK" ] && [ -n "$S3_SK" ] || die "incomplete S3 configuration in the $API_SERVICE container"
 
-  _host="${S3_ENDPOINT#https://}"; _host="${_host%%/*}"
+  # Do not assume the scheme. Stripping a hard-coded "https://" turns a model-B
+  # endpoint (http://minio:9000) into "https://http://minio:9000", which fails
+  # with a confusing DNS error rather than a clear one. common.sh validates the
+  # backup endpoint the same way.
+  case "$S3_ENDPOINT" in
+    https://*) _scheme=https; _host="${S3_ENDPOINT#https://}" ;;
+    http://*)  _scheme=http;  _host="${S3_ENDPOINT#http://}"  ;;
+    *) die "S3_ENDPOINT in the $API_SERVICE container has no http(s) scheme: '$S3_ENDPOINT'" ;;
+  esac
+  _host="${_host%%/*}"
   export RCLONE_CONFIG=/dev/null
   export RCLONE_CONFIG_MEDIA_TYPE=s3
   export RCLONE_CONFIG_MEDIA_PROVIDER=Cloudflare
   export RCLONE_CONFIG_MEDIA_REGION="$(g S3_REGION)"
-  export RCLONE_CONFIG_MEDIA_ENDPOINT="https://$_host"
+  export RCLONE_CONFIG_MEDIA_ENDPOINT="$_scheme://$_host"
   export RCLONE_CONFIG_MEDIA_ACCESS_KEY_ID="$S3_AK"
   export RCLONE_CONFIG_MEDIA_SECRET_ACCESS_KEY="$S3_SK"
   export RCLONE_CONFIG_MEDIA_NO_CHECK_BUCKET=true
