@@ -26,3 +26,21 @@ ORIGINAL_PROMPT.txt
 /infra/docker/docker-compose.prod.yml
 /infra/docker/Caddyfile
 /.env.prod
+
+# Copies and backups of the files above. The literal paths do not cover them, so
+# a `docker-compose.yml.bak-2026-01-01` made before an edit showed up as
+# untracked and a `git add -A` would have committed the database password.
+*.bak
+*.bak-*
+*.orig
+*.save
+
+# Database dumps and archives. `*.sql` is NOT ignored globally on purpose —
+# packages/database/prisma/migrations/*/migration.sql must stay tracked — so this
+# only covers compressed dumps and anything dropped at the repository root.
+*.sql.gz
+*.dump
+*.dump.gz
+/*.sql
+/backups/
+/signage-backups/
