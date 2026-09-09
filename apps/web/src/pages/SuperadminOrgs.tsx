@@ -18,6 +18,7 @@ import {
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { OrganizationLogo } from '../components/OrganizationLogo';
+import { PlatformHealth } from '../components/PlatformHealth';
 import { formatBytes } from '../lib/format';
 import { useAction, useApi } from '../lib/hooks';
 
@@ -54,6 +55,13 @@ export function SuperadminOrgsPage() {
         subtitle="Platform-level organization management"
         actions={<Button onClick={() => setShowCreate(true)}>New company</Button>}
       />
+      {/* Operational state of the platform, above the company list: dependency
+          health, fleet counts, backup and retention status, and any emergency
+          override that has been left running. */}
+      <div className="mb-6">
+        <PlatformHealth />
+      </div>
+
       <ErrorNote message={orgs.error ?? toggleStatus.error} />
       {orgs.loading && !orgs.data ? <Spinner /> : null}
 

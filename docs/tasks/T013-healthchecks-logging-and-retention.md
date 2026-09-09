@@ -6,7 +6,7 @@
 | **Risk** | Medium — the retention job **deletes production data**; a wrong predicate is destructive and irreversible |
 | **Depends on** | T010 (deployment), T011 (a verified backup must exist before anything deletes rows) |
 | **Blocks** | Operating a fleet larger than a handful of devices |
-| **Status** | Not started |
+| **Status** | Stages 1-5 done (health, indexes, retention, alerting, dashboard). Retention ships in DRY RUN. Object reclaim and per-device alert muting are NOT implemented — see Outcome. |
 
 > Self-contained by design: a fresh Claude Code session has no memory of the
 > review that produced this file.
@@ -353,3 +353,85 @@ Reuse what exists rather than building a new area:
   inside the worker loop.
 - Adding indexes to large tables locks writes unless created concurrently.
   Schedule it, and follow T011's pre-migration backup step.
+
+---
+
+## Outcome (2026-09-09)
+
+Delivered in five staged commits rather than one, because the retention job
+deletes production data and deserved isolating.
+
+**1. Health.** `/health` is unchanged and stays dependency-free — a liveness probe
+that fails on a Postgres blip makes Docker restart-loop the API and turns a short
+outage into a long one. New `GET /health/ready` probes Postgres, Redis, storage
+(`HeadBucket`, constant cost) and worker liveness, in parallel under 2s timeouts.
+The severity split is unit-tested policy, not an AND: database/redis down is
+`down`/503; storage or worker missing is `degraded`/200, because devices keep
+playing and syncing what already exists. Errors are reduced to `timeout` or
+`unreachable` — driver messages carry hostnames and sometimes credentials, and
+this route has no auth. Registered outside `/api/v1` so nginx does not proxy it.
+
+**Worker liveness** closes the gap T010 left. Published two ways from one timer: a
+file for the container healthcheck (no network, so a Redis blip cannot restart a
+worker mid-transcode) and a short-TTL Redis key that `/health/ready` counts with
+SCAN, not KEYS. The healthcheck expression was tested in the real base image
+against no-file, fresh, and stale states.
+
+**2. Indexes.** Measured against a restore of real production data: the retention
+predicate went from `Seq Scan` cost 3049 to `Index Only Scan` cost 1462, so the
+job now scales with rows deleted rather than table size. Also fixed B8 —
+`playStatsFor` could not use the existing composite index because its leading
+column is `organizationId`, which that query does not filter on, so the media
+library page was sequentially scanning `playback_events` on every load. The gain
+there is modest at current size (4358 → 3994, 11ms) because the query legitimately
+touches 16,504 rows; the benefit grows with the table.
+
+**3. Retention.** Dry run by DEFAULT. Refuses to delete unless `backup.sh` has
+recorded a recent success in Redis, and **fails closed** — an absent marker is
+precisely what silently-broken backups look like. Batched at 5,000 with a per-run
+ceiling. Table and column names are checked against an allowlist before being
+interpolated into SQL. Every run writes an `AuditLog` row, dry runs included.
+
+Verified against real data, not only unit tests: with a 14-day cutoff over 30,733
+heartbeats, one batch deleted exactly 5,000, draining deleted exactly the 13,112
+candidates, and the 17,621 rows newer than the cutoff were untouched (oldest
+survivor 2026-09-03). 21 unit tests cover the cutoff maths, the fail-closed gate,
+and rejecting a zero or negative window — `0` would mean "delete everything up to
+now", which is a plausible typo and an unrecoverable one.
+
+**4. Alerting** via ntfy, evaluated every 5 minutes. Firing alerts repeat at most
+every 6h and recoveries are announced once, so silence means "fine" rather than
+"possibly broken". A failed dispatch is not recorded as sent, so it retries. Off
+entirely unless `ALERT_NTFY_URL` is set. Scheduled with BullMQ job schedulers, not
+setInterval, so two replicas cannot both prune at 03:00. Retention runs at 03:00,
+half an hour before the 03:30 backup, so a destructive run is always followed by a
+fresh backup.
+
+**5. Dashboard.** `GET /superadmin/platform-health` returns the same dependency
+report as `/health/ready` plus the fleet numbers the worker's alert conditions
+evaluate — so the panel and the alerts cannot disagree. Surfaced as a three-card
+summary above the company list: dependencies with latencies, fleet and media
+counts, queue depth, last backup, last retention run, and any active emergency
+override with elapsed hours. It exists as its own authenticated route rather than
+exposing `/health/ready`, and refreshes every 30s rather than 10s because each
+call makes a real `HeadBucket`.
+
+### NOT implemented — deliberately
+
+- **Object reclaim.** Orphaned S3 objects from soft-deleted media, superseded
+  `MediaVariant`s and trimmed `device_screenshots` are still never deleted. This is
+  the only part of retention that would delete media at scale, which is exactly the
+  risk the owner accepted in T012 — so it needs its own decision rather than
+  arriving as a side effect of enabling row retention.
+  `infra/backup/reconcile-media.sh` already *reports* these orphans, so they are
+  visible and can be removed by hand. Note the app deletes almost no objects today
+  (media deletion is a soft delete), so nothing is getting worse quickly.
+- **Per-device alert muting.** A screen knowingly powered down overnight will alert
+  every night. Needs either a `mutedUntil` column or a Redis key per device.
+- **Monitoring.tsx / DeviceDetail.tsx polish** (step 7's per-device fields). The
+  superadmin panel covers the fleet-level picture; the per-device surfacing of
+  `lastError`, cache usage and heartbeat age is untouched. Note D10 — `lastError`
+  is never cleared once set — so presenting it prominently would show stale errors
+  as current. That fix belongs to T015.
+- **journald `SystemMaxUse`** on the host (step 5's host half). Container logs are
+  capped by T010; the journal is not.

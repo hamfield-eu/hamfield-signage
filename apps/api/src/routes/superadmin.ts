@@ -9,12 +9,16 @@ import {
   superadminUpdateUserSchema,
   type SuperadminOrganizationDto,
   type SuperadminUserDto,
+  OFFLINE_THRESHOLD_SECONDS,
 } from '@signage/shared';
 import { hashPassword } from '../lib/auth';
 import { authenticateUser, requireSuperadmin } from '../plugins/auth';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
 import { orgLogoUrl, serializeOrg } from '../lib/serializers';
+import { readyReport } from '../lib/health';
+import { getRedisPub } from '../lib/redis';
+import { getMediaQueue } from '../lib/queues';
 
 type OrgParams = { Params: { orgId: string } };
 type UserParams = { Params: { userId: string } };
@@ -28,6 +32,17 @@ function slugify(name: string): string {
     .slice(0, 40);
   const suffix = Math.random().toString(36).slice(2, 8);
   return base ? `${base}-${suffix}` : suffix;
+}
+
+/** Shape returned by GET /superadmin/platform-health. */
+export interface PlatformHealthDto {
+  dependencies: Awaited<ReturnType<typeof readyReport>>;
+  fleet: { total: number; online: number; offline: number; syncError: number };
+  media: { pending: number; processing: number; failed: number };
+  activeOverrides: Array<{ id: string; name: string; organizationName: string; hoursActive: number }>;
+  queue: { waiting: number; active: number } | null;
+  lastRetentionRun: { at: string; dryRun: boolean; totalDeleted: number } | null;
+  lastBackupAt: string | null;
 }
 
 export async function superadminRoutes(app: FastifyInstance): Promise<void> {
@@ -343,6 +358,84 @@ export async function superadminRoutes(app: FastifyInstance): Promise<void> {
   );
 
   // ---------- Audit log ----------
+
+  // ---------- Platform health ----------
+
+  // The operational picture in one request, for the superadmin dashboard.
+  //
+  // This exists because /health/ready is registered outside /api/v1 and is
+  // therefore NOT proxied - per-dependency latencies are a diagnostic surface, not
+  // a public one. Rather than exposing it, this route reuses the same report
+  // behind superadmin auth, and adds the fleet-level numbers the alert conditions
+  // in the worker are evaluating, so the dashboard and the alerts cannot disagree.
+  app.get('/superadmin/platform-health', async (): Promise<PlatformHealthDto> => {
+    const now = new Date();
+    const offlineBefore = new Date(now.getTime() - OFFLINE_THRESHOLD_SECONDS * 1000);
+
+    const [dependencies, total, online, syncError, mediaCounts, overrides, lastRun, lastBackupAt] =
+      await Promise.all([
+        readyReport(prisma),
+        prisma.device.count({ where: { deletedAt: null } }),
+        prisma.device.count({ where: { deletedAt: null, lastSeenAt: { gte: offlineBefore } } }),
+        prisma.device.count({ where: { deletedAt: null, syncStatus: 'error' } }),
+        prisma.mediaAsset.groupBy({
+          by: ['processingStatus'],
+          where: { deletedAt: null },
+          _count: { _all: true },
+        }),
+        prisma.emergencyOverride.findMany({
+          where: { active: true },
+          select: { id: true, name: true, startedAt: true, organization: { select: { name: true } } },
+          orderBy: { startedAt: 'asc' },
+        }),
+        prisma.auditLog.findFirst({
+          where: { action: 'retention.run' },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true, metadata: true },
+        }),
+        getRedisPub()
+          .get('signage:backup:last-success')
+          .catch(() => null),
+      ]);
+
+    const countFor = (status: string) =>
+      mediaCounts.find((m) => m.processingStatus === status)?._count._all ?? 0;
+
+    let queue: PlatformHealthDto['queue'] = null;
+    try {
+      const q = getMediaQueue();
+      queue = { waiting: await q.getWaitingCount(), active: await q.getActiveCount() };
+    } catch {
+      // Redis already appears in `dependencies`; do not fail the whole page for it.
+    }
+
+    const meta = (lastRun?.metadata ?? null) as { dryRun?: boolean; totalDeleted?: number } | null;
+
+    return {
+      dependencies,
+      fleet: { total, online, offline: total - online, syncError },
+      media: {
+        pending: countFor('pending'),
+        processing: countFor('processing'),
+        failed: countFor('failed'),
+      },
+      activeOverrides: overrides.map((o) => ({
+        id: o.id,
+        name: o.name ?? 'unnamed override',
+        organizationName: o.organization?.name ?? 'unknown org',
+        hoursActive: (now.getTime() - o.startedAt.getTime()) / 3_600_000,
+      })),
+      queue,
+      lastRetentionRun: lastRun
+        ? {
+            at: lastRun.createdAt.toISOString(),
+            dryRun: meta?.dryRun ?? true,
+            totalDeleted: meta?.totalDeleted ?? 0,
+          }
+        : null,
+      lastBackupAt,
+    };
+  });
 
   app.get('/superadmin/audit-logs', async (req) => {
     const query = (req.query ?? {}) as { page?: string; pageSize?: string };
