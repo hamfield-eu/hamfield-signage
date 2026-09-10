@@ -45,8 +45,9 @@ no memory of the review. Same convention as `docs/todo-encoding-settings.md`.
 >
 > **T014 status:** [`docs/runbook.md`](../runbook.md) is written (2026-09-10),
 > covering all 16 sections. Every block carries a provenance tag — `[PROD]`,
-> `[LOCAL]`, `[TESTED]` (not deployed) or `[UNVERIFIED]` — so a reader can tell
-> at a glance which procedures are proven. The restore-*drill* table is
+> `[PROD-PARTS]` (commands proven, sequence not), `[LOCAL]`, `[TESTED]` (not
+> deployed) or `[UNVERIFIED]` — so a reader can tell at a glance which
+> procedures are proven. The restore-*drill* table is
 > deliberately **empty**; a separate rehearsal table records the 2026-09-09
 > workstation exercise and states what it did not prove. Rollback durations and
 > RTO remain **unmeasured**. Note the runbook documents a deployment one release

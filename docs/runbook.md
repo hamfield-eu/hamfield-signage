@@ -13,7 +13,8 @@ needs to be deployed, checked, or fixed.
 >
 > | Tag | Meaning |
 > |---|---|
-> | `[PROD]` | Executed against `signage.hamfield.eu` and the output matched. |
+> | `[PROD]` | Executed against `signage.hamfield.eu`, **as written**, and the output matched. |
+> | `[PROD-PARTS]` | The individual commands ran on production, but **this sequence has never been executed as a unit**. Assembled from verified pieces. |
 > | `[LOCAL]` | Executed on a workstation against real production data (a restored dump or a downloaded backup bundle). Proves the command; does not prove it in situ. |
 > | `[TESTED]` | Covered by automated tests in this repo, but the containing feature is **not yet deployed** (see §1, "Deployed version"). |
 > | `[UNVERIFIED]` | Written from source-reading. **Never executed.** Read it, then confirm before relying on it. |
@@ -45,10 +46,10 @@ needs to be deployed, checked, or fixed.
 
 ## 0. The `dc` shorthand
 
-Commands below are written in full. Historically this project used a `dc`
-alias, and a session that lost it mid-deploy wasted time on `dc: command not
-found`. If you want the shorthand, define it as a **function** in `~/.bashrc` —
-an alias breaks the `-v` guard used in scripts:
+**Set this up first.** Every `docker compose` command in this runbook is
+written as `dc`, so the code fences copy-paste cleanly. Define it as a
+**function** in `~/.bashrc` — not an alias, which breaks the `-v` guard used in
+scripts:
 
 ```bash
 dc() {
@@ -58,12 +59,22 @@ dc() {
 }
 ```
 
-`[PROD]` — this function shape was used during the T010–T013 work. Confirm it
-resolves before a deploy with `type dc`.
+`[PROD-PARTS]` — a `dc` function was used during the T010–T013 work, but not
+with these exact absolute paths. **Confirm it resolves before you rely on it:**
 
-All `docker compose` invocations must include **both** compose files and
-`--env-file .env.prod`. Running plain `docker compose up -d` from the repo root
-uses the base file only and will not produce the production topology.
+```bash
+type dc && dc ps
+```
+
+> A previous session lost this mid-deploy and wasted time on
+> `dc: command not found`. It is defined in `~/.bashrc`, so it exists in an
+> interactive login shell and **not** in `cron`, `systemd` units, or
+> `ssh host '<command>'`. In those, write the invocation out in full.
+
+The expansion is not cosmetic: every invocation must include **both** compose
+files and `--env-file .env.prod`. Running plain `docker compose up -d` from the
+repo root uses the base file only and will **not** produce the production
+topology.
 
 ---
 
@@ -187,7 +198,9 @@ The authoritative control is the **Hetzner Cloud Firewall**, not `ufw`.
 
 Outbound: all allowed. Everything else inbound: denied.
 
-`[PROD]` — this is the owner's standing Hetzner Cloud Firewall configuration.
+`[PROD]` — owner-attested standing configuration, read from the Hetzner Cloud
+Firewall. This is a config statement, not command output; see the verification
+caveat immediately below.
 
 ### Verification
 
@@ -210,7 +223,10 @@ there.
 
 ## 4. DNS and TLS
 
-`[PROD]` — the live deployment issues and renews certificates by this route.
+`[PROD]` for the outcome — the live deployment issues and renews certificates by
+this route, and `curl https://signage.hamfield.eu/health` has been served over a
+valid certificate throughout. `[UNVERIFIED]` for the three diagnostic commands
+below as a troubleshooting sequence.
 
 - A/AAAA record → the VPS IP, at the registrar.
 - **Point DNS at the server only after the stack is up.** Let's Encrypt
@@ -225,7 +241,7 @@ there.
 ```bash
 dig +short signage.hamfield.eu
 curl -fsSI https://signage.hamfield.eu/ | head -n 5
-docker compose ... logs caddy          # see §0 for the full invocation
+dc logs caddy          # see §0 for the full invocation
 ```
 
 Renewal is automatic. The only thing to check is that `caddy-data` is a
@@ -248,7 +264,7 @@ duplicated here. What matters operationally:
 3. Superadmin bootstrap runs on first API start from `INITIAL_SUPERADMIN_*`.
    If those were blank:
    ```bash
-   docker compose ... exec api node apps/api/dist/cli/create-superadmin.js \
+   dc exec api node apps/api/dist/cli/create-superadmin.js \
      admin@example.com 'StrongPass12+' 'Platform Admin'
    ```
 4. **Rotate the superadmin password after first login. This is mandatory** —
@@ -286,15 +302,15 @@ The controlled sequence. Tick these off literally.
         startup, and the API exits immediately.
 
 [ ]  8. Build:
-        docker compose ... build
+        dc build
 
 [ ]  9. Migrate explicitly, so you see the result before anything restarts:
-        docker compose ... run --rm migrate
+        dc run --rm migrate
 
-[ ] 10. docker compose ... up -d
+[ ] 10. dc up -d
 
 [ ] 11. If the Caddyfile or any bind-mounted config changed:
-        docker compose ... restart caddy
+        dc restart caddy
         (see the note below — this one has bitten this deployment)
 
 [ ] 12. Smoke test (§12).
@@ -302,8 +318,17 @@ The controlled sequence. Tick these off literally.
 [ ] 13. Record the new SHA in §1 of this runbook, commit, push.
 ```
 
-`[PROD]` — steps 6, 8, 9, 10 and 11 were executed on production during the T010
-`.env.prod` migration. Steps 2 and 3 `[PROD]` from T011. Step 4 `[UNVERIFIED]`.
+`[PROD-PARTS]` — **this checklist has never been run end to end as a unit.**
+Per step:
+
+| Step | Provenance |
+|---|---|
+| 2, 3 (backup + verify) | `[PROD]` — the nightly path, run repeatedly under T011 |
+| 6, 8, 10, 11 (checkout, build, up, restart caddy) | `[PROD]` — executed individually during the T010 `.env.prod` migration |
+| 9 (`run --rm migrate`) | `[PROD-PARTS]` — migrations have applied on production, but via the one-shot `migrate` service during `up`, **not** as a standalone `run --rm` ahead of it. The standalone form is documented in `deployment.md` §9 and is the safer order, because you see the result before anything restarts — but confirm it on the next deploy |
+| 1, 7 (the two diffs) | `[UNVERIFIED]` — plain `git diff`, but not run in this form |
+| 4 (Hetzner snapshot) | `[UNVERIFIED]` |
+| 12, 13 | see §12 |
 
 > **Step 11 is not optional when config changed.** A bind-mounted `Caddyfile` is
 > **not** re-read by `up -d`; the container keeps its old config and you get a
@@ -352,7 +377,7 @@ this before you deploy anything schema-touching.
 Check migration state:
 
 ```bash
-docker compose ... exec api node packages/database/node_modules/prisma/build/index.js \
+dc exec api node packages/database/node_modules/prisma/build/index.js \
   migrate status --schema packages/database/prisma/schema.prisma
 ```
 
@@ -388,6 +413,8 @@ systemctl list-timers hamfield-backup.timer   # next run
 ### Ad-hoc backup and verification
 
 ```bash
+cd /root/hamfield-signage
+
 ./infra/backup/backup.sh                          # what the timer runs
 ./infra/backup/backup.sh --tag pre-upgrade-<sha>  # kept 30 days
 ./infra/backup/backup.sh --no-prune               # back up, delete nothing
@@ -409,6 +436,7 @@ all contain rows.
 ### Restore
 
 ```bash
+cd /root/hamfield-signage
 ./infra/backup/restore.sh --bundle <bundle.age> --identity <key>   # DESTRUCTIVE
 ```
 
@@ -446,12 +474,12 @@ Two separate things, deliberately not conflated:
 
 | Not covered | Cost | Recovery |
 |---|---|---|
-| Redis / BullMQ queue state | In-flight jobs lost | Re-enqueue: `docker compose ... exec api node apps/api/dist/cli/reprocess-media.js` |
+| Redis / BullMQ queue state | In-flight jobs lost | Re-enqueue: `dc exec api node apps/api/dist/cli/reprocess-media.js` `[UNVERIFIED]` — path inferred from `apps/api/src/cli/reprocess-media.ts` and the `tsc -p tsconfig.json` build; the sibling `create-superadmin.js` is attested at that path. Confirm with `dc exec api ls apps/api/dist/cli` |
 | Media objects (images/video) | All customer content | **Relies entirely on Cloudflare R2 durability.** R2 has **no object versioning** (`PutBucketVersioning` is not implemented), so an accidental or malicious delete is not recoverable from the media bucket itself. Risk explicitly accepted by the owner, 2026-09-09. |
 | In-flight transcodes | Partial outputs | Reprocess the affected assets |
 | TLS certificates | Re-issued by ACME | Automatic, but counts against rate limits |
 
-Run `./infra/backup/reconcile-media.sh` after any restore to find DB ↔ object
+Run `/root/hamfield-signage/infra/backup/reconcile-media.sh` after any restore to find DB ↔ object
 storage skew. It is read-only against the media bucket (`rclone lsf` only).
 
 ### RPO / RTO
@@ -503,26 +531,29 @@ too.
 
 | Need | Command |
 |---|---|
-| API | `docker compose ... logs -f api` (JSON in production) |
-| Worker / transcoding | `docker compose ... logs -f worker` |
-| TLS / proxy | `docker compose ... logs -f caddy` |
-| Dashboard proxy (nginx) | `docker compose ... logs -f web` |
-| Migrations | `docker compose ... logs migrate` |
+| API | `dc logs -f api` (JSON in production) |
+| Worker / transcoding | `dc logs -f worker` |
+| TLS / proxy | `dc logs -f caddy` |
+| Dashboard proxy (nginx) | `dc logs -f web` |
+| Migrations | `dc logs migrate` |
 | Backups | `journalctl -u hamfield-backup` |
 | Device agent | `signage logs -f` (on the device) |
 | Kiosk browser | `signage player-logs -f` (on the device) |
 | Device logs, centrally | Dashboard → screen → Logs, or `GET /orgs/:orgId/devices/:deviceId/logs` |
 
-`[PROD]`
+`[PROD]` for `logs api`, `logs worker`, `logs caddy`, `logs migrate` and
+`journalctl -u hamfield-backup` — all run on production during T010–T013.
+`[UNVERIFIED]` for `logs web` and for both device-side commands; the syntax is
+from `infra/device/signage`, but these were not run for this runbook.
 
 ### The greps that matter in an incident
 
 ```bash
-docker compose ... logs api    | grep -i "device websocket"      # pairing / WSS upgrade
-docker compose ... logs api    | grep -i "superadmin"            # bootstrap (password never logged)
-docker compose ... logs worker | grep -iE "processing failed|ffmpeg"
-docker compose ... logs api    | grep -iE "sync failed|syncStatus"
-docker compose ... logs migrate                                  # always read in full; it is short
+dc logs api    | grep -i "device websocket"      # pairing / WSS upgrade
+dc logs api    | grep -i "superadmin"            # bootstrap (password never logged)
+dc logs worker | grep -iE "processing failed|ffmpeg"
+dc logs api    | grep -iE "sync failed|syncStatus"
+dc logs migrate                                  # always read in full; it is short
 ```
 
 Production API logs are JSON. `| jq -R 'fromjson? // .'` makes them readable.
@@ -533,7 +564,7 @@ Production API logs are JSON. `| jq -R 'fromjson? // .'` makes them readable.
 ## 11. Checking service health
 
 ```bash
-docker compose ... ps          # all running/healthy; migrate must show exited (0)
+dc ps          # all running/healthy; migrate must show exited (0)
 curl -fsS https://signage.hamfield.eu/health      # liveness -> {"status":"ok",...}
 df -h                                             # disk
 docker system df                                  # image/volume/build-cache usage
@@ -583,7 +614,7 @@ logs, you simply have no monitoring. Verify explicitly after any deploy that
 recreates the worker:
 
 ```bash
-docker compose ... exec worker printenv ALERT_NTFY_URL   # must be non-empty
+dc exec worker printenv ALERT_NTFY_URL   # must be non-empty
 ```
 
 `[UNVERIFIED]` — T013 is not deployed yet.
@@ -596,7 +627,7 @@ Run after **every** deploy. Kept short so it actually gets run — the long
 first-deploy version is [deployment.md §8a](deployment.md).
 
 ```
-[ ] docker compose ... ps        — all running/healthy, migrate exited (0)
+[ ] dc ps        — all running/healthy, migrate exited (0)
 [ ] curl -fsSI https://signage.hamfield.eu/          -> 200, text/html
 [ ] curl -fsS  https://signage.hamfield.eu/health    -> {"status":"ok",...}
 [ ] migrate status                                   -> up to date (§7)
@@ -604,11 +635,14 @@ first-deploy version is [deployment.md §8a](deployment.md).
 [ ] Upload one image AND one video -> both reach `ready`
       (the single test that proves S3 creds + worker + ffmpeg + Redis together)
 [ ] All 4 paired screens show online and `in_sync`
-[ ] docker compose ... logs api | grep -i "device websocket"  -> upgrades succeeding
+[ ] dc logs api | grep -i "device websocket"  -> upgrades succeeding
 [ ] No unexpected errors in `logs api` / `logs worker`
 ```
 
-`[PROD]`
+`[PROD-PARTS]` — every line here is a check that has been performed against
+production and passed, but **not as a post-deploy checklist run in one sitting**.
+The upload check in particular was verified as a property of the running system,
+not as a deploy gate.
 
 Add once T013 is deployed: `curl -fsS .../health/ready` → `{"status":"ok"}`.
 
@@ -693,7 +727,7 @@ Every row says what to **do**.
 | `migrate` exits 1 with `P1000` | `POSTGRES_PASSWORD` ≠ the password inside `DATABASE_URL`. The password is baked into `postgres-data` at first creation and never updated by changing the env var | Fix the URL to match the **original** password. **Do not `down -v`** — that deletes the database |
 | API exits immediately on start | `JWT_SECRET` still the dev placeholder under `NODE_ENV=production` (guard at `apps/api/src/env.ts:52`) | Set a real secret in `.env.prod` |
 | API exits on start after an upgrade | A newly required env var is missing; the zod schema rejects it | Diff your config against the updated templates (§6 step 7); read `logs api` — zod names the variable |
-| **502 across the whole site after a deploy** | Bind-mounted `Caddyfile` changed but Caddy was not restarted; `up -d` does not re-read it | `docker compose ... restart caddy` `[PROD]` |
+| **502 across the whole site after a deploy** | Bind-mounted `Caddyfile` changed but Caddy was not restarted; `up -d` does not re-read it | `dc restart caddy` `[PROD]` |
 | **502 on `/api/…` only, dashboard loads** | Old `web` image pinned the `api` container IP at nginx startup; the IP changed | `restart web` now; rebuild `web` from current `infra/docker/web-nginx.conf` to fix permanently `[PROD]` |
 | Caddy cannot get a certificate | DNS not pointing here, 80/443 blocked, or Cloudflare orange-cloud | `dig`, check the firewall, set the record to DNS-only. **Stop retrying** — you are burning rate limit |
 | Devices reach HTTPS but not WSS | Proxy not forwarding the upgrade | The bundled nginx + Caddyfile do forward it; a Cloudflare proxy may not |

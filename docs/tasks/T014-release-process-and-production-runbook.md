@@ -322,11 +322,13 @@ Every row must say **what to do**, not just what happened.
 - [~] **Every command in it has been executed on a real host and its output
       matches what the document claims.** — *Partially.* Rather than claim this
       falsely, the runbook tags **every** block with provenance: `[PROD]`
-      (executed against signage.hamfield.eu), `[LOCAL]` (executed on a
-      workstation against real production data), `[TESTED]` (covered by tests
-      but **not deployed** — all of T012/T013), `[UNVERIFIED]` (written from
-      source, never run). §2 (initial VPS setup), §14 (Chromebox) and
-      `restore.sh` are entirely `[UNVERIFIED]`.
+      (executed against signage.hamfield.eu **as written**), `[PROD-PARTS]`
+      (the commands ran on production, but the *sequence* never did — §6's
+      release checklist and §12's smoke test are both this), `[LOCAL]`
+      (executed on a workstation against real production data), `[TESTED]`
+      (covered by tests but **not deployed** — all of T012/T013), and
+      `[UNVERIFIED]` (written from source, never run). §2 (initial VPS setup),
+      §14 (Chromebox) and `restore.sh` are entirely `[UNVERIFIED]`.
 - [ ] A person who is not the author performs, using only the runbook:
       an update deploy, a backup, a restore drill on a fresh VPS, and adding +
       pairing a device. Each succeeds without asking the author a question.
