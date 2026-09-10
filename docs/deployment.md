@@ -447,6 +447,13 @@ install is sound.
 
 ## 9. Updates & redeploys
 
+> **For a routine release, use the checklist in
+> [runbook.md §6](runbook.md#6-update--release-deploy) instead of this section.**
+> It wraps the commands below in the controlled sequence that actually matters:
+> check for migrations first, take and *verify* a pre-upgrade backup
+> (`infra/backup/`), snapshot, then deploy and smoke-test. This section explains
+> the mechanics; the runbook is the procedure.
+
 ```bash
 cd hamfield-signage
 git pull                  # updates code + templates; leaves your real files alone
@@ -480,6 +487,9 @@ git rev-parse HEAD        # the SHA you can roll back to
 
 ### 9a. Rolling back
 
+See [runbook.md §9](runbook.md#9-rollback) for the decision rule and the
+scenario table. In short:
+
 What a rollback costs depends entirely on whether a migration ran.
 
 **No migration ran** (`dc logs migrate` shows "No pending migrations"): rollback
@@ -500,13 +510,20 @@ stays at the new version while the old image expects the old one. Recovering
 means restoring the database from a backup taken _before_ the migration, which is
 why [§11](#11-backups) is not optional.
 
-> Until a scripted, drilled backup exists, the only real rollback is a **VPS
-> snapshot**. Take one before the first deploy and before every upgrade. Hetzner
-> snapshots are cheap; an unrecoverable database is not.
+> A scripted backup now exists (`infra/backup/`, [§11](#11-backups)), but it has
+> **never been drilled on a fresh VPS** — see
+> [runbook.md §8](runbook.md#8-backup-and-restore). Keep taking a **VPS
+> snapshot** before the first deploy and before every upgrade: it is a second,
+> independent restore point that does not depend on those scripts being correct.
+> Hetzner snapshots are cheap; an unrecoverable database is not.
 
 ---
 
 ## 10. Persistence & data safety
+
+> What is **not** covered by backups, and the recovery for each, is in
+> [runbook.md §8](runbook.md#8-backup-and-restore). Notably: Redis/queue state,
+> in-flight transcodes, and media objects (R2 has no object versioning).
 
 All state lives in **named Docker volumes**, which is what makes
 `dc up -d --build` safe to run as often as you like: images are replaced, data is
@@ -564,7 +581,9 @@ dc exec postgres psql -U signage -c "ALTER USER signage WITH PASSWORD 'new-url-s
 ## 11. Backups
 
 This is automated. See **`infra/backup/README.md`** for what runs, what is
-covered and what is not; the scripts live in `infra/backup/`.
+covered and what is not; the scripts live in `infra/backup/`. For the
+operational side — ad-hoc backups, verification, the drill record and what is
+**not** backed up — see [runbook.md §8](runbook.md#8-backup-and-restore).
 
 In short: a nightly systemd timer dumps PostgreSQL with `pg_dump -Fc`, bundles it
 with the git-ignored config files and a manifest, **verifies the bundle by

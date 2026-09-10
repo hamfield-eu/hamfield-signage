@@ -143,6 +143,21 @@ services:
       NODE_ENV: production
       DATABASE_URL: *database-url
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      # ── Telemetry retention (T013) ──────────────────────────────────────────
+      # Prunes device_heartbeats / device_logs / playback_events nightly.
+      # Ships in DRY-RUN: it logs what it would delete and deletes nothing.
+      # Read those counts first, then set RETENTION_DRY_RUN=false to arm it.
+      # It refuses to delete unless a backup succeeded within
+      # RETENTION_REQUIRE_BACKUP_WITHIN_HOURS (default 36) — it fails closed.
+      RETENTION_ENABLED: ${RETENTION_ENABLED:-true}
+      RETENTION_DRY_RUN: ${RETENTION_DRY_RUN:-true}
+      # ── Alerting (T013) ────────────────────────────────────────────────────
+      # ALERT_NTFY_URL defaults to EMPTY, which SILENTLY DISABLES all alerting.
+      # Set it, or you have no monitoring. On ntfy.sh the topic name IS the
+      # access control, so treat the full URL as a secret: keep it in .env.prod,
+      # never in this file once it is real, and never in git.
+      ALERT_NTFY_URL: ${ALERT_NTFY_URL:-}
+      ALERT_NTFY_TOKEN: ${ALERT_NTFY_TOKEN:-}
 
   web:
     restart: unless-stopped

@@ -42,6 +42,15 @@ no memory of the review. Same convention as `docs/todo-encoding-settings.md`.
 > fresh-VPS drill is **waived by the owner (2026-09-09)**; RTO is therefore
 > unmeasured and `restore.sh` is unproven end to end. See "Drill waiver" in
 > [T011](T011-backup-restore-and-upgrade-path.md).
+>
+> **T014 status:** [`docs/runbook.md`](../runbook.md) is written (2026-09-10),
+> covering all 16 sections. Every block carries a provenance tag — `[PROD]`,
+> `[LOCAL]`, `[TESTED]` (not deployed) or `[UNVERIFIED]` — so a reader can tell
+> at a glance which procedures are proven. The restore-*drill* table is
+> deliberately **empty**; a separate rehearsal table records the 2026-09-09
+> workstation exercise and states what it did not prove. Rollback durations and
+> RTO remain **unmeasured**. Note the runbook documents a deployment one release
+> behind: T012 and T013 are committed but **not deployed**.
 
 ## Notes on ordering
 
@@ -70,6 +79,8 @@ no memory of the review. Same convention as `docs/todo-encoding-settings.md`.
 - Documentation contained three confirmed inaccuracies, fixed across
   T010/T013/T014: the server `/healthz` command in `docs/device-install.md:145`
   (**fixed in T010** — `/health` is now proxied and the doc points at it), the
-  "telemetry is pruned" claim in `docs/architecture.md:229`, and the
-  "React player UI" description in `README.md` / `docs/architecture.md`
-  (`apps/player` has no React dependency).
+  "telemetry is pruned" claim in `docs/architecture.md:229` (**fixed in T014** —
+  now states that retention ships in dry-run and prunes nothing until armed),
+  and the "React player UI" description in `README.md` / `docs/architecture.md`
+  (**fixed in T014** — `apps/player` is vanilla TypeScript + Vite with no React
+  dependency; the dashboard `apps/web` genuinely is React and was left alone).

@@ -57,7 +57,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full v0.2 feature upgrade.
 | Storage      | S3-compatible object storage (MinIO in dev)                        |
 | Dashboard    | React 18, Vite, Tailwind CSS                                       |
 | Device agent | Node.js + better-sqlite3, systemd, Chromium kiosk                  |
-| Player UI    | React, served by the agent's local HTTP server                     |
+| Player UI    | Vanilla TypeScript + Vite, served by the agent's local HTTP server |
 | Monorepo     | pnpm workspaces                                                    |
 
 ## Repository layout
@@ -195,6 +195,7 @@ The device boots into a Chromium kiosk and appears online in the dashboard.
 
 - [docs/architecture.md](docs/architecture.md) — components, data flow, security model
 - [docs/deployment.md](docs/deployment.md) — full cloud server deployment (Docker, DNS, TLS)
+- [docs/runbook.md](docs/runbook.md) — **production runbook**: deploy, update, back up, restore, roll back, troubleshoot
 - [docs/api.md](docs/api.md) — REST + WebSocket API reference
 - [docs/device-install.md](docs/device-install.md) — device setup, `signage` CLI, updates
 - [docs/sync-protocol.md](docs/sync-protocol.md) — manifest format and sync semantics

@@ -27,7 +27,7 @@ flowchart LR
     files["media files<br/>on disk"]
     localServer["local HTTP server<br/>(:8080)"]
     chrome["Chromium kiosk"]
-    player["player UI<br/>(React)"]
+    player["player UI<br/>(vanilla TS)"]
 
     agent --- sqlite
     sqlite --- files
@@ -226,7 +226,9 @@ models: `User` (+ `globalRole`), `Organization` (+ `status`/plan/limits),
 `Schedule` (+ device/group targets), `EmergencyOverride` (+ targets),
 `DeviceCommand`, `DeviceHeartbeat`, `DeviceLog`, `PlaybackEvent`,
 `DeviceScreenshot`, `AuditLog`. Everything user-facing is org-scoped and
-soft-deleted (`deletedAt`); device telemetry tables are append-only and pruned.
+soft-deleted (`deletedAt`); device telemetry tables are append-only, with a nightly
+retention job (T013) that prunes them; it ships in dry-run mode and only deletes
+once `RETENTION_DRY_RUN=false` is set.
 
 **v2 content model.** `MediaFolder` is a nestable, org-scoped logical grouping
 (`parentFolderId`); media gains an optional `folderId`. Folders never move storage

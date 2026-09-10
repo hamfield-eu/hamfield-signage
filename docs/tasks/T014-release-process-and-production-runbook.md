@@ -6,7 +6,7 @@
 | **Risk** | Low to write, **High if wrong** — an incorrect runbook is worse than none, because it is trusted during an incident |
 | **Depends on** | T010 (deployment), T011 (backup/restore), T012 (firewall/security), T013 (health/alerts) |
 | **Blocks** | Handing operations to anyone other than the author; customer commitments |
-| **Status** | Not started |
+| **Status** | `docs/runbook.md` written (2026-09-10), all 16 sections. Every block is tagged with provenance; the document is honest about what was never executed. **Two acceptance items cannot be met and are recorded as open below**, not silently ticked. |
 
 > Self-contained by design: a fresh Claude Code session has no memory of the
 > review that produced this file.
@@ -318,23 +318,50 @@ Every row must say **what to do**, not just what happened.
 
 ## Acceptance criteria
 
-- [ ] `docs/runbook.md` exists and covers all 16 sections above.
-- [ ] **Every command in it has been executed on a real host and its output
-      matches what the document claims.**
+- [x] `docs/runbook.md` exists and covers all 16 sections above.
+- [~] **Every command in it has been executed on a real host and its output
+      matches what the document claims.** — *Partially.* Rather than claim this
+      falsely, the runbook tags **every** block with provenance: `[PROD]`
+      (executed against signage.hamfield.eu), `[LOCAL]` (executed on a
+      workstation against real production data), `[TESTED]` (covered by tests
+      but **not deployed** — all of T012/T013), `[UNVERIFIED]` (written from
+      source, never run). §2 (initial VPS setup), §14 (Chromebox) and
+      `restore.sh` are entirely `[UNVERIFIED]`.
 - [ ] A person who is not the author performs, using only the runbook:
       an update deploy, a backup, a restore drill on a fresh VPS, and adding +
       pairing a device. Each succeeds without asking the author a question.
-- [ ] The restore drill table has at least one dated entry with a measured duration.
-- [ ] `docs/device-install.md:145` no longer tells operators to curl `/healthz`
-      on the server.
-- [ ] `docs/architecture.md` and `README.md` no longer describe the player UI as
+      — **Not done.** Single-operator project; there is no second person, and
+      the fresh-VPS drill was waived under T011.
+- [ ] The restore drill table has at least one dated entry with a measured
+      duration. — **Deliberately empty.** The drill table in §8 has *no* rows,
+      because no drill has been run. A separate *rehearsal* table records the
+      2026-09-09 workstation exercise (~20 s) with an explicit column for what
+      it did **not** prove. Conflating the two would be the single most
+      dangerous line in the document.
+- [x] `docs/device-install.md:145` no longer tells operators to curl `/healthz`
+      on the server. — Already corrected in an earlier task; verified.
+- [x] `docs/architecture.md` and `README.md` no longer describe the player UI as
       React (`apps/player` has no React dependency).
-- [ ] `docs/architecture.md:229`'s pruning claim matches what T013 implemented.
-- [ ] `docs/deployment.md:§9`/`§10` link to the runbook and to T011's scripts
+- [x] `docs/architecture.md:229`'s pruning claim matches what T013 implemented —
+      including that it ships in dry-run and prunes nothing until armed.
+- [x] `docs/deployment.md` §9/§10/§11 link to the runbook and to T011's scripts
       rather than restating a partial procedure.
-- [ ] The failure-mode table includes the four known device-side issues (F1, F5,
+- [x] The failure-mode table includes the four known device-side issues (F1, F5,
       F6, F9) with workarounds and a pointer to the task that fixes each.
-- [ ] The runbook records the currently deployed git SHA and how to update it.
+- [x] The runbook records the currently deployed git SHA and how to update it.
+
+### Open items
+
+1. **Rollback durations are unmeasured.** §9's table is explicitly marked
+   estimates, not measurements. The upgrade procedure has never run on a
+   non-production host. Time the next real deploy and replace them.
+2. **RTO is unmeasured** and cannot be stated honestly until a drill runs.
+3. **`restore.sh` has still never been executed end to end** (carried from T011).
+4. **The runbook describes a deployment that is one release behind.** T012 and
+   T013 are committed but not deployed; §1 records this and lists what is
+   therefore not live. Re-verify the `[TESTED]` blocks after that deploy.
+5. **No cold-read by a second person.** The main defence against author's-eye
+   blindness is untested.
 
 ---
 
