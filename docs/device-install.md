@@ -87,6 +87,13 @@ A device that lands on `software` because its driver is not in the map now says
 so by name in `signage player-logs`, along with the override command — so
 unrecognised hardware is discoverable instead of just being slow.
 
+`auto` only selects an accelerated backend when a hardware (non-`lavapipe`)
+Vulkan driver is present, so a misdetect can't strand a screen. To experiment on
+other hardware, force a mode, e.g. `signage config set SIGNAGE_KIOSK_GPU gles`,
+then `signage restart-player` and check `signage player-logs` for repeated
+`Exiting GPU process` lines (= that backend doesn't work there; revert to
+`software`).
+
 ### Hardware video decode (x86 only)
 
 On `x86_64`, the installer also adds `vainfo`, `intel-media-va-driver` (iHD) and
@@ -107,13 +114,6 @@ and note that VA-API flag names change between Chromium major versions, so a
 flag set is only trustworthy for the version it was tested against.
 
 ARM boards install none of this: there is no VA-API driver to install for them.
-
-`auto` only enables Vulkan when a hardware (non-`lavapipe`) Vulkan driver is
-present, so a misdetect can't strand a screen. To experiment on other hardware,
-force a mode, e.g. `signage config set SIGNAGE_KIOSK_GPU vulkan`, then
-`signage restart-player` and check `signage player-logs` for repeated
-`Exiting GPU process` lines (= that backend doesn't work there; revert to
-`software`).
 
 ## The `signage` CLI
 
@@ -171,10 +171,44 @@ new pairing code, then on the device run `signage pair <CODE>`.
 
 ## Troubleshooting
 
-| Symptom                   | Check                                                                                                                                                                               |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Screen shows "not paired" | `signage logs -f` — wrong/expired code? Run `signage pair <new code>`.                                                                                                              |
-| Black screen / no X       | `signage player-logs`; confirm `/etc/X11/Xwrapper.config` has `allowed_users=anybody`.                                                                                              |
-| Online but stale content  | `signage status` (sync state), dashboard → screen → Sync status; `refresh_content` command.                                                                                         |
-| Media won't download      | Server URL reachable over HTTPS from the device? `curl -fsS $SIGNAGE_SERVER_URL/health` → `{"status":"ok",…}`. (`/healthz` is this device's _own_ player server, not the server's.) |
-| Disk filling up           | Cache is pruned to the manifest; check `/var/lib/signage/media` vs. assigned playlists.                                                                                             |
+| Symptom                                                             | Check                                                                                                                                                                               |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Screen shows "not paired"                                           | `signage logs -f` — wrong/expired code? Run `signage pair <new code>`.                                                                                                              |
+| Black screen / no X                                                 | `signage player-logs`; confirm `/etc/X11/Xwrapper.config` has `allowed_users=anybody`.                                                                                              |
+| Player restarts in a loop, `Server is already active for display 0` | A desktop session owns the console. See "A desktop install is already running X" below.                                                                                             |
+| Online but stale content                                            | `signage status` (sync state), dashboard → screen → Sync status; `refresh_content` command.                                                                                         |
+| Media won't download                                                | Server URL reachable over HTTPS from the device? `curl -fsS $SIGNAGE_SERVER_URL/health` → `{"status":"ok",…}`. (`/healthz` is this device's _own_ player server, not the server's.) |
+| Disk filling up                                                     | Cache is pruned to the manifest; check `/var/lib/signage/media` vs. assigned playlists.                                                                                             |
+
+### A desktop install is already running X
+
+The kiosk owns the console. If the device was installed from a **desktop** ISO,
+a display manager (GDM, LightDM, SDDM) already holds display `:0`, and the
+player service dies on every start with:
+
+```
+(EE) Fatal server error:
+(EE) Server is already active for display 0
+```
+
+systemd then restarts it forever. The agent is unaffected — the device pairs,
+syncs and reports normally — so the only symptom is a blank screen and a
+restart counter climbing in `systemctl status signage-player`.
+
+Hand the console to the kiosk:
+
+```bash
+ls -l /etc/systemd/system/display-manager.service   # which DM is it?
+sudo systemctl disable --now display-manager
+sudo systemctl set-default multi-user.target
+sudo rm -f /tmp/.X0-lock
+sudo systemctl restart signage-player
+```
+
+This removes the local desktop, which is the intent for an appliance. It is
+reversible with `systemctl enable --now display-manager` and
+`systemctl set-default graphical.target`.
+
+`install.sh` warns about this at the end of an install when it detects an
+enabled display manager. Installing from a **Lite / server / netinst** image
+avoids it entirely, and is the recommended base for a signage device.

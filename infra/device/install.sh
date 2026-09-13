@@ -276,6 +276,21 @@ if [ "$INSTALL_PLAYER" -eq 1 ]; then
 fi
 systemctl daemon-reload
 systemctl enable --now signage-agent.service
+
+# A desktop install already owns the console, and the kiosk cannot share it:
+# xinit dies with "Server is already active for display 0" and systemd restarts
+# it forever. The agent is fine — only the screen is blank — so this is a loud
+# warning rather than a failed install, and the operator decides.
+#
+# Installing from a desktop ISO is the normal case on x86 thin clients (the ARM
+# boards are usually flashed with a Lite/server image), so this is checked
+# before the player is started rather than left to be discovered in the logs.
+DISPLAY_MANAGER=""
+if systemctl is-enabled display-manager.service > /dev/null 2>&1 ||
+  systemctl is-active display-manager.service > /dev/null 2>&1; then
+  DISPLAY_MANAGER="$(basename "$(readlink -f /etc/systemd/system/display-manager.service 2> /dev/null || echo display-manager)" .service)"
+fi
+
 if [ "$INSTALL_PLAYER" -eq 1 ]; then
   systemctl enable --now signage-player.service
 fi
@@ -291,4 +306,21 @@ if [ -z "$PAIRING_CODE" ]; then
   echo
   echo "  No pairing code set yet. Create a screen in the dashboard and run:"
   echo "    signage pair <CODE>"
+fi
+
+if [ "$INSTALL_PLAYER" -eq 1 ] && [ -n "$DISPLAY_MANAGER" ]; then
+  echo
+  echo "  =============================================================="
+  echo "  WARNING: a display manager ($DISPLAY_MANAGER) owns the console."
+  echo
+  echo "  The kiosk cannot start while it is running — X refuses with"
+  echo "  'Server is already active for display 0' and the player service"
+  echo "  restarts in a loop. The agent is unaffected; the screen stays blank."
+  echo
+  echo "  To hand the console to the kiosk (this removes the local desktop):"
+  echo "    sudo systemctl disable --now display-manager"
+  echo "    sudo systemctl set-default multi-user.target"
+  echo "    sudo rm -f /tmp/.X0-lock"
+  echo "    sudo systemctl restart signage-player"
+  echo "  =============================================================="
 fi
