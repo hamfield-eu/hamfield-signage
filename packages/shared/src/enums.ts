@@ -97,7 +97,18 @@ export const COMMAND_STATUSES = [
 ] as const;
 export type CommandStatus = (typeof COMMAND_STATUSES)[number];
 
-export const SYNC_STATUSES = ['never_synced', 'in_sync', 'syncing', 'error'] as const;
+/**
+ * `insufficient_storage` is deliberately distinct from `error`: it is the one
+ * sync failure an operator can actually fix, and it needs a different action
+ * (smaller playlist, or a bigger disk) from "something went wrong".
+ */
+export const SYNC_STATUSES = [
+  'never_synced',
+  'in_sync',
+  'syncing',
+  'error',
+  'insufficient_storage',
+] as const;
 export type SyncStatus = (typeof SYNC_STATUSES)[number];
 
 export const PLAYBACK_EVENT_TYPES = ['start', 'end', 'error', 'skip'] as const;

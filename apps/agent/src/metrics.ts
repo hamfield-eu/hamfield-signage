@@ -27,11 +27,20 @@ export async function readDeviceModel(): Promise<string | null> {
   return null;
 }
 
+export interface CacheReport {
+  cacheBudgetBytes: number;
+  cachedFileCount: number;
+  lastIntegrityCheckAt: string | null;
+  integrityFailureCount: number;
+  orphanFilesRemoved: number;
+}
+
 export async function collectMetrics(
   config: AgentConfig,
   db: AgentDb,
   position: PlaybackPosition,
   lastError: string | null,
+  cache?: CacheReport,
 ): Promise<HeartbeatInput> {
   let diskFreeBytes: number | undefined;
   let diskTotalBytes: number | undefined;
@@ -62,5 +71,6 @@ export async function collectMetrics(
     currentMediaId: position.currentMediaId,
     manifestVersion: db.getManifestVersion(),
     lastError,
+    ...(cache ?? {}),
   };
 }

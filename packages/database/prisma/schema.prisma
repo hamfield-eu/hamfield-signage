@@ -118,6 +118,10 @@ enum SyncStatusValue {
   in_sync
   syncing
   error
+  // The device cannot fit its playlist. Distinct from `error` on purpose: it
+  // is actionable (smaller playlist, or a bigger disk) and it does NOT mean
+  // playback stopped — the screen keeps showing what it already cached.
+  insufficient_storage
 }
 
 enum PlaybackEventType {
@@ -164,13 +168,13 @@ model User {
 }
 
 model Organization {
-  id           String    @id @default(cuid())
-  name         String
-  slug         String    @unique
-  status       OrgStatus @default(active)
-  planName     String?
-  maxDevices   Int?
-  maxStorageGb Int?
+  id                   String    @id @default(cuid())
+  name                 String
+  slug                 String    @unique
+  status               OrgStatus @default(active)
+  planName             String?
+  maxDevices           Int?
+  maxStorageGb         Int?
   // Branding. Logos are stored in object storage (S3/MinIO); only the key and
   // metadata live here. See the org logo endpoints in routes/orgs.ts.
   logoStorageKey       String?
@@ -178,9 +182,9 @@ model Organization {
   logoOriginalFilename String?
   logoSizeBytes        Int?
   logoUpdatedAt        DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  deletedAt    DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  deletedAt            DateTime?
 
   members            OrganizationMember[]
   devices            Device[]
@@ -217,18 +221,18 @@ model OrganizationMember {
 // ============================================================
 
 model Device {
-  id             String            @id @default(cuid())
-  organizationId String
-  name           String
-  description    String?
-  orientation    DeviceOrientation @default(landscape)
+  id              String            @id @default(cuid())
+  organizationId  String
+  name            String
+  description     String?
+  orientation     DeviceOrientation @default(landscape)
   // Software rotation (clockwise degrees: 0/90/180/270) compensating for how
   // the panel is physically mounted; orthogonal to orientation.
-  rotation       Int               @default(0)
-  timezone       String            @default("UTC")
+  rotation        Int               @default(0)
+  timezone        String            @default("UTC")
   // Video quality tier served to this device. Defaults to the safe `standard`
   // (1080p30) tier; auto-suggested in the dashboard from `deviceModel`.
-  playbackProfile PlaybackProfile  @default(standard)
+  playbackProfile PlaybackProfile   @default(standard)
 
   // Pairing. The code is short-lived, single-use and shown in the dashboard
   // until used, so it is stored in plaintext by design (unlike device tokens,
@@ -238,25 +242,30 @@ model Device {
   pairedAt             DateTime?
 
   // Status (reported by the device)
-  lastSeenAt     DateTime?
-  lastIp         String?
-  appVersion     String?
-  osInfo         String?
-  archInfo       String?
+  lastSeenAt            DateTime?
+  lastIp                String?
+  appVersion            String?
+  osInfo                String?
+  archInfo              String?
   // Board model reported by the device (e.g. "Raspberry Pi 4 Model B",
   // "Hardkernel ODROID-C4"); used to auto-suggest a playback tier.
-  deviceModel    String?
-  uptimeSeconds  Float?
-  cpuPercent     Float?
-  memUsedBytes   BigInt?
-  memTotalBytes  BigInt?
-  diskFreeBytes  BigInt?
-  diskTotalBytes BigInt?
-  cacheUsedBytes BigInt?
-  screenWidth    Int?
-  screenHeight   Int?
-  networkType    String?
-  lastError      String?
+  deviceModel           String?
+  uptimeSeconds         Float?
+  cpuPercent            Float?
+  memUsedBytes          BigInt?
+  memTotalBytes         BigInt?
+  diskFreeBytes         BigInt?
+  diskTotalBytes        BigInt?
+  cacheUsedBytes        BigInt?
+  // Cache guard state (T017), reported by the agent.
+  cacheBudgetBytes      BigInt?
+  storageShortfallBytes BigInt?
+  cachedFileCount       Int?
+  lastIntegrityCheckAt  DateTime?
+  screenWidth           Int?
+  screenHeight          Int?
+  networkType           String?
+  lastError             String?
 
   // Sync / playback state
   syncStatus        SyncStatusValue @default(never_synced)
@@ -270,8 +279,8 @@ model Device {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  organization     Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  defaultPlaylist  Playlist?                 @relation("DeviceDefaultPlaylist", fields: [defaultPlaylistId], references: [id], onDelete: SetNull)
+  organization     Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  defaultPlaylist  Playlist?                  @relation("DeviceDefaultPlaylist", fields: [defaultPlaylistId], references: [id], onDelete: SetNull)
   tokens           DeviceToken[]
   groupMemberships DeviceGroupMembership[]
   scheduleLinks    ScheduleDeviceAssignment[]
@@ -362,37 +371,37 @@ model MediaFolder {
 }
 
 model MediaAsset {
-  id                 String           @id @default(cuid())
-  organizationId     String
-  folderId           String?
-  name               String
-  originalFilename   String
-  mediaType          MediaType
-  originalMimeType   String
-  processedMimeType  String?
-  originalStorageKey String
+  id                  String            @id @default(cuid())
+  organizationId      String
+  folderId            String?
+  name                String
+  originalFilename    String
+  mediaType           MediaType
+  originalMimeType    String
+  processedMimeType   String?
+  originalStorageKey  String
   processedStorageKey String?
   thumbnailStorageKey String?
-  durationSeconds    Float?
-  width              Int?
-  height             Int?
-  orientation        MediaOrientation?
-  processingStatus   ProcessingStatus @default(pending)
-  processingError    String?
-  sizeBytes          BigInt?
-  processedSizeBytes BigInt?
-  checksumSha256     String?
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
-  deletedAt          DateTime?
+  durationSeconds     Float?
+  width               Int?
+  height              Int?
+  orientation         MediaOrientation?
+  processingStatus    ProcessingStatus  @default(pending)
+  processingError     String?
+  sizeBytes           BigInt?
+  processedSizeBytes  BigInt?
+  checksumSha256      String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  deletedAt           DateTime?
 
-  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  folder         MediaFolder?         @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  variants       MediaVariant[]
-  playlistItems  PlaylistItem[]
-  emergencyOverrides EmergencyOverride[]
-  playbackEvents PlaybackEvent[]
-  processingJobs MediaProcessingJob[]
+  organization            Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  folder                  MediaFolder?                     @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  variants                MediaVariant[]
+  playlistItems           PlaylistItem[]
+  emergencyOverrides      EmergencyOverride[]
+  playbackEvents          PlaybackEvent[]
+  processingJobs          MediaProcessingJob[]
   priorityRuleAssignments PlaylistPriorityRuleAssignment[]
 
   @@index([organizationId, deletedAt, mediaType])
@@ -474,9 +483,9 @@ model Playlist {
 }
 
 model PlaylistItem {
-  id                String           @id @default(cuid())
+  id                String            @id @default(cuid())
   playlistId        String
-  type              PlaylistItemType @default(media)
+  type              PlaylistItemType  @default(media)
   mediaAssetId      String?
   folderId          String?
   position          Int
@@ -485,14 +494,14 @@ model PlaylistItem {
   /// Hex color (#rrggbb) shown behind the media; null = inherit playlist/platform default.
   backgroundColor   String?
   positionMode      PositionMode?
-  enabled           Boolean          @default(true)
-  includeSubfolders Boolean          @default(false)
+  enabled           Boolean           @default(true)
+  includeSubfolders Boolean           @default(false)
   /// null = include all media types (folder entries only).
   filterMediaType   MediaType?
   /// null = include all orientations (folder entries only).
   filterOrientation MediaOrientation?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   playlist   Playlist     @relation(fields: [playlistId], references: [id], onDelete: Cascade)
   mediaAsset MediaAsset?  @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
@@ -605,27 +614,27 @@ model ScheduleGroupAssignment {
 // ============================================================
 
 model EmergencyOverride {
-  id              String    @id @default(cuid())
+  id              String        @id @default(cuid())
   organizationId  String
   name            String?
   playlistId      String?
   mediaAssetId    String?
-  active          Boolean   @default(true)
-  appliesToAll    Boolean   @default(false)
+  active          Boolean       @default(true)
+  appliesToAll    Boolean       @default(false)
   // Display settings for single-media overrides (ignored for playlist overrides).
   fitMode         FitMode?
   backgroundColor String?
   positionMode    PositionMode?
-  startedAt       DateTime  @default(now())
+  startedAt       DateTime      @default(now())
   stoppedAt       DateTime?
   createdByUserId String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  playlist     Playlist?    @relation(fields: [playlistId], references: [id], onDelete: SetNull)
-  mediaAsset   MediaAsset?  @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
-  createdBy    User?        @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  organization Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  playlist     Playlist?                 @relation(fields: [playlistId], references: [id], onDelete: SetNull)
+  mediaAsset   MediaAsset?               @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+  createdBy    User?                     @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
   devices      EmergencyOverrideDevice[]
   groups       EmergencyOverrideGroup[]
 
@@ -721,23 +730,23 @@ model DeviceLog {
 }
 
 model PlaybackEvent {
-  id           String            @id @default(cuid())
+  id              String            @id @default(cuid())
   /// Nullable for events recorded before the v2 upgrade (backfilled when possible).
-  organizationId String?
-  deviceId     String
-  mediaAssetId String?
-  playlistId   String?
+  organizationId  String?
+  deviceId        String
+  mediaAssetId    String?
+  playlistId      String?
   /// Set when the item was inserted by a priority rule.
-  priorityRuleId String?
+  priorityRuleId  String?
   /// 'normal' | 'priority' (null for pre-v2 events).
-  playedAs     String?
+  playedAs        String?
   /// Client-generated id used to deduplicate re-submitted offline batches.
-  clientEventId String?
+  clientEventId   String?
   durationSeconds Float?
-  eventType    PlaybackEventType
-  detail       Json?
-  occurredAt   DateTime
-  createdAt    DateTime          @default(now())
+  eventType       PlaybackEventType
+  detail          Json?
+  occurredAt      DateTime
+  createdAt       DateTime          @default(now())
 
   device     Device      @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   mediaAsset MediaAsset? @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)

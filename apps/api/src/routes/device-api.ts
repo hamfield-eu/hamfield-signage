@@ -156,10 +156,16 @@ export async function deviceApiRoutes(app: FastifyInstance): Promise<void> {
     return { manifest, commands: commands.map(serializeCommand) };
   });
 
+  const bigintOrNull = (value: number | undefined): bigint | null =>
+    value == null ? null : BigInt(Math.max(0, Math.round(value)));
+
   const REPORTED_SYNC_STATUS = {
     downloading: 'syncing',
     applied: 'in_sync',
     failed: 'error',
+    // Kept distinct from `error` deliberately (T017): the operator's next
+    // action is different, and the screen is still playing.
+    insufficient_storage: 'insufficient_storage',
   } as const;
 
   app.post('/device/sync-status', auth, async (req) => {
@@ -175,6 +181,18 @@ export async function deviceApiRoutes(app: FastifyInstance): Promise<void> {
           ? { manifestVersion: body.manifestVersion, lastSyncAt: new Date(), lastError: null }
           : {}),
         ...(body.status === 'failed' ? { lastError: body.error ?? 'sync failed' } : {}),
+        ...(body.status === 'insufficient_storage'
+          ? {
+              lastError: body.error ?? 'insufficient storage',
+              storageShortfallBytes: bigintOrNull(body.shortfallBytes),
+              ...(body.cacheBudgetBytes != null
+                ? { cacheBudgetBytes: bigintOrNull(body.cacheBudgetBytes) }
+                : {}),
+            }
+          : {}),
+        // A successful sync clears the shortfall; otherwise the dashboard would
+        // keep showing a stale "needs 2.4 GB more" after the operator fixed it.
+        ...(body.status === 'applied' ? { storageShortfallBytes: null } : {}),
         ...(body.cacheUsedBytes != null
           ? { cacheUsedBytes: BigInt(Math.max(0, Math.round(body.cacheUsedBytes))) }
           : {}),
@@ -182,6 +200,17 @@ export async function deviceApiRoutes(app: FastifyInstance): Promise<void> {
     });
     if (body.status === 'failed') {
       req.log.warn({ deviceId: dev.id, error: body.error }, 'device sync failed');
+    }
+    if (body.status === 'insufficient_storage') {
+      req.log.warn(
+        {
+          deviceId: dev.id,
+          requiredBytes: body.requiredBytes,
+          availableBytes: body.availableBytes,
+          shortfallBytes: body.shortfallBytes,
+        },
+        'device has insufficient storage for its playlist',
+      );
     }
     return { ok: true };
   });

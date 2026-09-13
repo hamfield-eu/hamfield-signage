@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -226,5 +226,257 @@ describe('SyncEngine', () => {
     expect(existsSync(join(config.mediaDir, 'img-2'))).toBe(false);
     expect(backend.syncStatuses.some((s) => s.status === 'failed')).toBe(true);
     expect(db.takeLogs(10).some((l) => l.message.includes('sync failed'))).toBe(true);
+  });
+
+  // ------------------------------------------------------------- T017 (F5)
+
+  describe('cache integrity', () => {
+    it('re-downloads a cached file that has vanished from disk', async () => {
+      // The F5 acceptance test. The index still says "present with the right
+      // checksum", so diffManifest calls it unchanged and it is never fetched
+      // again — the player 404s on it every cycle, forever. Note the manifest
+      // version has NOT changed, which is why repair needs the forced sync.
+      await engine.syncNow('initial');
+      const path = db.getCachedMedia('img-1')!.filePath;
+      rmSync(path);
+
+      await engine.maintainCache('test');
+
+      expect(existsSync(path)).toBe(true);
+      expect(readFileSync(path)).toEqual(imgContent);
+      expect(backend.downloads.filter((d) => d === 'img-1')).toHaveLength(2);
+      expect(db.getManifestVersion()).toBe('v1');
+    });
+
+    it('re-downloads a truncated file, detected by size alone', async () => {
+      await engine.syncNow('initial');
+      const path = db.getCachedMedia('vid-1')!.filePath;
+      writeFileSync(path, 'tru');
+
+      await engine.maintainCache('test');
+
+      expect(readFileSync(path)).toEqual(vidContent);
+      expect(backend.downloads.filter((d) => d === 'vid-1')).toHaveLength(2);
+    });
+
+    it('re-downloads same-size corruption once the file is re-hashed', async () => {
+      // stat cannot see this; only the hashing tier can. Nothing had ever
+      // re-hashed a cached file before T017.
+      await engine.syncNow('initial');
+      const path = db.getCachedMedia('img-1')!.filePath;
+      writeFileSync(path, Buffer.alloc(imgContent.length, 0x41));
+
+      await engine.maintainCache('test');
+
+      expect(readFileSync(path)).toEqual(imgContent);
+    });
+
+    it('repairs one damaged file without disturbing the others', async () => {
+      await engine.syncNow('initial');
+      const imgPath = db.getCachedMedia('img-1')!.filePath;
+      const vidPath = db.getCachedMedia('vid-1')!.filePath;
+      rmSync(imgPath);
+
+      await engine.maintainCache('test');
+
+      expect(existsSync(imgPath)).toBe(true);
+      expect(existsSync(vidPath)).toBe(true);
+      expect(backend.downloads.filter((d) => d === 'vid-1')).toHaveLength(1);
+      expect(
+        db
+          .listCachedMedia()
+          .map((c) => c.mediaId)
+          .sort(),
+      ).toEqual(['img-1', 'vid-1']);
+    });
+
+    it('reports the repair through the buffered device log', async () => {
+      await engine.syncNow('initial');
+      rmSync(db.getCachedMedia('img-1')!.filePath);
+
+      await engine.maintainCache('test');
+
+      expect(db.takeLogs(20).some((l) => l.message.includes('cache integrity'))).toBe(true);
+    });
+  });
+
+  // ------------------------------------------------------------- T017 (F6)
+
+  describe('storage precheck', () => {
+    /** An engine whose headroom demand no real filesystem can satisfy. */
+    function engineWithConfig(env: Record<string, string>): SyncEngine {
+      const cfg = loadConfig({
+        SIGNAGE_SERVER_URL: backend.url,
+        SIGNAGE_DATA_DIR: dataDir,
+        ...env,
+      } as NodeJS.ProcessEnv);
+      return new SyncEngine(
+        cfg,
+        db,
+        new ApiClient(cfg, 'test-token'),
+        pino({ level: 'silent' }),
+        (m) => applied.push(m),
+      );
+    }
+
+    it('refuses to start, reports insufficient_storage, and touches nothing', async () => {
+      // The F6 acceptance test. Today the sync starts, hits ENOSPC part-way,
+      // aborts, and the next poll repeats the identical failure forever.
+      const cramped = engineWithConfig({ SIGNAGE_MIN_FREE_DISK_MB: '100000000' });
+
+      await cramped.syncNow('no room');
+
+      expect(backend.downloads).toEqual([]);
+      expect(db.getManifestVersion()).toBeNull();
+      expect(db.listCachedMedia()).toEqual([]);
+      expect(applied).toHaveLength(0);
+
+      const report = backend.syncStatuses.at(-1);
+      expect(report?.status).toBe('insufficient_storage');
+      expect(report?.shortfallBytes).toBeGreaterThan(0);
+      expect(report?.requiredBytes).toBeGreaterThan(0);
+      expect(typeof report?.availableBytes).toBe('number');
+    });
+
+    it('keeps the previously cached content playable when it later runs out', async () => {
+      // The screen must never go blank because of a storage problem.
+      await engine.syncNow('initial');
+      const cramped = engineWithConfig({ SIGNAGE_MIN_FREE_DISK_MB: '100000000' });
+      backend.manifest = buildManifest('v2', [
+        mediaEntry('img-1', imgContent),
+        mediaEntry('img-9', Buffer.from('a new large asset')),
+      ]);
+      backend.files.set('img-9', Buffer.from('a new large asset'));
+
+      await cramped.syncNow('no room for the update');
+
+      expect(db.getManifestVersion()).toBe('v1');
+      expect(
+        db
+          .listCachedMedia()
+          .map((c) => c.mediaId)
+          .sort(),
+      ).toEqual(['img-1', 'vid-1']);
+      expect(existsSync(db.getCachedMedia('img-1')!.filePath)).toBe(true);
+    });
+
+    it('recovers by itself on the next sync once there is room', async () => {
+      const cramped = engineWithConfig({ SIGNAGE_MIN_FREE_DISK_MB: '100000000' });
+      await cramped.syncNow('no room');
+      expect(db.getManifestVersion()).toBeNull();
+
+      // No operator action beyond freeing space — the ordinary engine retries.
+      await engine.syncNow('space freed');
+
+      expect(db.getManifestVersion()).toBe('v1');
+      expect(backend.syncStatuses.at(-1)?.status).toBe('applied');
+    });
+
+    it('records the refusal in the device log', async () => {
+      const cramped = engineWithConfig({ SIGNAGE_MIN_FREE_DISK_MB: '100000000' });
+      await cramped.syncNow('no room');
+      expect(db.takeLogs(20).some((l) => l.message.includes('sync refused'))).toBe(true);
+    });
+  });
+
+  // ------------------------------------------------------ T017 housekeeping
+
+  describe('orphan sweep and eviction', () => {
+    const ageOut = (path: string) => {
+      const past = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      utimesSync(path, past, past);
+    };
+
+    it('removes an aged unindexed file and a stale .part', async () => {
+      await engine.syncNow('initial');
+      const orphan = join(config.mediaDir, 'left-by-a-crash');
+      writeFileSync(orphan, 'orphan');
+      ageOut(orphan);
+      const part = join(config.tmpDir, 'interrupted.part');
+      writeFileSync(part, 'half');
+      ageOut(part);
+
+      await engine.maintainCache('test');
+
+      expect(existsSync(orphan)).toBe(false);
+      expect(existsSync(part)).toBe(false);
+      // Real cached files are untouched.
+      expect(existsSync(db.getCachedMedia('img-1')!.filePath)).toBe(true);
+    });
+
+    it('leaves a freshly downloaded unindexed file alone', async () => {
+      await engine.syncNow('initial');
+      const inFlight = join(config.mediaDir, 'mid-download');
+      writeFileSync(inFlight, 'still going');
+
+      await engine.maintainCache('test');
+
+      expect(existsSync(inFlight)).toBe(true);
+    });
+
+    it('does not evict by default, even when over budget', async () => {
+      // Eviction deletes files on a customer's device, so it stays opt-in.
+      await engine.syncNow('initial');
+      addUnreferencedEntry();
+
+      await engine.maintainCache('test');
+
+      expect(db.getCachedMedia('orphan-1')).not.toBeNull();
+    });
+
+    it('evicts only unreferenced files when enabled', async () => {
+      await engine.syncNow('initial');
+      addUnreferencedEntry();
+      const evicting = engineWithTinyBudget();
+
+      await evicting.maintainCache('test');
+
+      expect(db.getCachedMedia('orphan-1')).toBeNull();
+      // Everything the current manifest references survives: offline playback
+      // is the product's core promise and eviction may never break it.
+      expect(db.getCachedMedia('img-1')).not.toBeNull();
+      expect(db.getCachedMedia('vid-1')).not.toBeNull();
+    });
+
+    /** Adds a cache row the current manifest does not reference. */
+    function addUnreferencedEntry(): void {
+      const filePath = join(config.mediaDir, 'orphan-1');
+      const body = Buffer.from('an unreferenced leftover');
+      writeFileSync(filePath, body);
+      db.applyManifest(
+        db.getManifest()!,
+        [
+          {
+            mediaId: 'orphan-1',
+            checksum: sha256(body),
+            sizeBytes: body.length,
+            mimeType: 'image/jpeg',
+            filePath,
+          },
+        ],
+        [],
+      );
+    }
+
+    /**
+     * A budget smaller than the few dozen test bytes, so the over-budget branch
+     * is reachable without writing gigabytes. Only `maintainCache` is called on
+     * this engine — a sync would be refused as `over_budget`, correctly.
+     */
+    function engineWithTinyBudget(): SyncEngine {
+      const cfg = loadConfig({
+        SIGNAGE_SERVER_URL: backend.url,
+        SIGNAGE_DATA_DIR: dataDir,
+        SIGNAGE_CACHE_EVICTION: 'true',
+        SIGNAGE_MAX_CACHE_GB: '0.00000005',
+      } as NodeJS.ProcessEnv);
+      return new SyncEngine(
+        cfg,
+        db,
+        new ApiClient(cfg, 'test-token'),
+        pino({ level: 'silent' }),
+        () => {},
+      );
+    }
   });
 });

@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { DEFAULT_MAX_CACHE_SIZE_GB, DEFAULT_MIN_FREE_DISK_MB } from '@signage/shared';
 
 const configSchema = z.object({
   /** Base URL of the backend, e.g. https://signage.example.com */
@@ -24,6 +25,22 @@ const configSchema = z.object({
     .transform((v) => v === 'true'),
   /** systemd unit restarted by the restart_player command, if any. */
   SIGNAGE_PLAYER_SERVICE: z.string().optional(),
+  /** Media cache budget in GB; also capped at a fraction of the disk. */
+  SIGNAGE_MAX_CACHE_GB: z.coerce.number().positive().default(DEFAULT_MAX_CACHE_SIZE_GB),
+  /** Free space a sync will not eat into. */
+  SIGNAGE_MIN_FREE_DISK_MB: z.coerce.number().nonnegative().default(DEFAULT_MIN_FREE_DISK_MB),
+  /**
+   * LRU eviction of unreferenced cached files. **Default off**: it deletes
+   * files on a customer's device, and the orphan sweep already removes the
+   * files that eviction would mostly be finding. Turn it on per device once
+   * the integrity and precheck work has run cleanly.
+   */
+  SIGNAGE_CACHE_EVICTION: z
+    .string()
+    .default('false')
+    .transform((v) => v.toLowerCase() === 'true' || v.toLowerCase() === 'on'),
+  /** Files re-hashed per verification pass; bounded to spare slow eMMC. */
+  SIGNAGE_CACHE_HASH_PER_PASS: z.coerce.number().int().nonnegative().default(2),
   SIGNAGE_LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
   SIGNAGE_APP_VERSION: z.string().default('0.1.0'),
 });
@@ -42,6 +59,10 @@ export interface AgentConfig {
   updateCmd: string | null;
   allowReboot: boolean;
   playerService: string | null;
+  maxCacheGb: number;
+  minFreeDiskBytes: number;
+  cacheEviction: boolean;
+  cacheHashPerPass: number;
   logLevel: string;
   appVersion: string;
 }
@@ -68,6 +89,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentConfig {
     updateCmd: parsed.SIGNAGE_UPDATE_CMD || null,
     allowReboot: parsed.SIGNAGE_ALLOW_REBOOT,
     playerService: parsed.SIGNAGE_PLAYER_SERVICE || null,
+    maxCacheGb: parsed.SIGNAGE_MAX_CACHE_GB,
+    minFreeDiskBytes: Math.round(parsed.SIGNAGE_MIN_FREE_DISK_MB * 1024 * 1024),
+    cacheEviction: parsed.SIGNAGE_CACHE_EVICTION,
+    cacheHashPerPass: parsed.SIGNAGE_CACHE_HASH_PER_PASS,
     logLevel: parsed.SIGNAGE_LOG_LEVEL,
     appVersion: parsed.SIGNAGE_APP_VERSION,
   };

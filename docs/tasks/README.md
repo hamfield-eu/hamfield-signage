@@ -37,6 +37,18 @@ no memory of the review. Same convention as `docs/todo-encoding-settings.md`.
 > smoke test are still outstanding — see the "Outcome" section at the end of
 > [T010](T010-production-deployment-baseline.md).
 >
+> **T017 status:** implemented 2026-09-10 — cache integrity with automatic
+> repair, a free-space/budget precheck that refuses to start a sync it cannot
+> finish, and a distinct `insufficient_storage` device status, plus an orphan
+> sweep, opt-in LRU eviction and the dead-constant cleanup. 28 new tests run
+> today; the 16 end-to-end cases added to `sync.test.ts` are typechecked but
+> **cannot execute here** — `better-sqlite3` has no binding for Node 24 and
+> `make` is missing, which also fails the four pre-existing tests on a clean
+> `HEAD`. Nothing deployed. Note the task plan's repair path did not work as
+> written: the sync's version-unchanged shortcut returns before the diff runs,
+> so repair needed a forced sync. See "Outcome" in
+> [T017](T017-cache-integrity-and-disk-guard.md).
+>
 > **T011 status:** nightly encrypted, verified, off-box backups are running on
 > `signage.hamfield.eu`, and DB↔storage reconciliation is implemented. The
 > fresh-VPS drill is **waived by the owner (2026-09-09)**; RTO is therefore

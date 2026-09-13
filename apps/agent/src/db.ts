@@ -67,6 +67,27 @@ export class AgentDb {
       );
     `);
     this.migrateEventBuffer();
+    this.migrateMediaCache();
+  }
+
+  /** Adds T017 integrity/LRU columns to databases created by older agents. */
+  private migrateMediaCache(): void {
+    const columns = new Set(
+      (this.db.prepare('PRAGMA table_info(media_cache)').all() as Array<{ name: string }>).map(
+        (c) => c.name,
+      ),
+    );
+    // Both stay nullable: a null means "never verified" / "never played", which
+    // is exactly right for rows that predate this migration and makes them the
+    // first candidates for verification and for eviction.
+    for (const [name, type] of [
+      ['last_verified_at', 'TEXT'],
+      ['last_used_at', 'TEXT'],
+    ] as Array<[string, string]>) {
+      if (!columns.has(name)) {
+        this.db.exec(`ALTER TABLE media_cache ADD COLUMN ${name} ${type}`);
+      }
+    }
   }
 
   /** Adds v2 event columns to databases created by older agent versions. */
@@ -134,6 +155,74 @@ export class AgentDb {
       sizeBytes: r.size_bytes,
       filePath: r.file_path,
     }));
+  }
+
+  /** The cache index with the columns integrity and eviction need. */
+  listCacheDetail(): Array<{
+    mediaId: string;
+    checksum: string;
+    sizeBytes: number;
+    filePath: string;
+    downloadedAt: string | null;
+    lastVerifiedAt: string | null;
+    lastUsedAt: string | null;
+  }> {
+    const rows = this.db
+      .prepare(
+        `SELECT media_id, checksum, size_bytes, file_path, downloaded_at,
+                last_verified_at, last_used_at
+         FROM media_cache`,
+      )
+      .all() as Array<{
+      media_id: string;
+      checksum: string;
+      size_bytes: number;
+      file_path: string;
+      downloaded_at: string | null;
+      last_verified_at: string | null;
+      last_used_at: string | null;
+    }>;
+    return rows.map((r) => ({
+      mediaId: r.media_id,
+      checksum: r.checksum,
+      sizeBytes: r.size_bytes,
+      filePath: r.file_path,
+      downloadedAt: r.downloaded_at,
+      lastVerifiedAt: r.last_verified_at,
+      lastUsedAt: r.last_used_at,
+    }));
+  }
+
+  cachedFileCount(): number {
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM media_cache').get() as { n: number };
+    return row.n;
+  }
+
+  /**
+   * Records that the player actually read this file, which is what makes the
+   * eviction order a real LRU rather than "oldest download".
+   */
+  touchCacheUse(mediaId: string): void {
+    this.db
+      .prepare('UPDATE media_cache SET last_used_at = ? WHERE media_id = ?')
+      .run(new Date().toISOString(), mediaId);
+  }
+
+  markVerified(mediaIds: string[], at = new Date().toISOString()): void {
+    const stmt = this.db.prepare('UPDATE media_cache SET last_verified_at = ? WHERE media_id = ?');
+    this.db.transaction(() => mediaIds.forEach((id) => stmt.run(at, id)))();
+  }
+
+  /**
+   * Drops cache index rows without touching the stored manifest.
+   *
+   * Used for repair and eviction. Removing the row is what makes `diffManifest`
+   * put the media back in `toDownload` — the file is then re-fetched through
+   * the ordinary download path, checksum verification and all.
+   */
+  removeCacheEntries(mediaIds: string[]): void {
+    const stmt = this.db.prepare('DELETE FROM media_cache WHERE media_id = ?');
+    this.db.transaction(() => mediaIds.forEach((id) => stmt.run(id)))();
   }
 
   getCachedMedia(mediaId: string): { filePath: string; mimeType: string } | null {

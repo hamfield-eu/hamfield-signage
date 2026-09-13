@@ -4,7 +4,17 @@ export const DEFAULT_DEVICE_ORIENTATION = 'landscape' as const;
 /** Safe default video tier: 1080p30 plays on every current player. */
 export const DEFAULT_PLAYBACK_PROFILE = 'standard' as const;
 export const DEFAULT_TIMEZONE = 'UTC';
+/** Default media cache budget on a device; `SIGNAGE_MAX_CACHE_GB` overrides it. */
 export const DEFAULT_MAX_CACHE_SIZE_GB = 8;
+/**
+ * The budget is also capped at this fraction of the whole filesystem, so a
+ * small eMMC does not hand 8 GB to the cache and leave the OS with nothing.
+ */
+export const MAX_CACHE_DISK_FRACTION = 0.7;
+/** Free space a sync refuses to eat into, so the device never wedges itself. */
+export const DEFAULT_MIN_FREE_DISK_MB = 500;
+/** Age at which an unindexed file in the media directory is treated as an orphan. */
+export const ORPHAN_GRACE_MS = 60 * 60 * 1000;
 
 export const PAIRING_CODE_LENGTH = 8;
 /** Characters used in pairing codes; ambiguous chars (0/O, 1/I/L) removed. */
@@ -14,7 +24,6 @@ export const DEVICE_TOKEN_PREFIX = 'sgd_';
 
 export const HEARTBEAT_INTERVAL_SECONDS = 30;
 export const OFFLINE_THRESHOLD_SECONDS = 90;
-export const SYNC_INTERVAL_SECONDS = 60;
 export const POLL_FALLBACK_INTERVAL_SECONDS = 30;
 
 /**

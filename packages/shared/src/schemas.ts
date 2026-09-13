@@ -407,14 +407,30 @@ export const heartbeatSchema = z.object({
   currentMediaId: z.string().nullable().optional(),
   manifestVersion: z.string().nullable().optional(),
   lastError: z.string().max(2000).nullable().optional(),
+  /** Cache guard state (T017); absent from older agents. */
+  cacheBudgetBytes: z.number().nonnegative().optional(),
+  cachedFileCount: z.number().int().nonnegative().optional(),
+  lastIntegrityCheckAt: z.string().datetime({ offset: true }).nullable().optional(),
+  integrityFailureCount: z.number().int().nonnegative().optional(),
+  orphanFilesRemoved: z.number().int().nonnegative().optional(),
 });
 
 export const syncStatusSchema = z.object({
   manifestVersion: z.string(),
-  status: z.enum(['applied', 'failed', 'downloading']),
+  status: z.enum(['applied', 'failed', 'downloading', 'insufficient_storage']),
   error: z.string().max(2000).optional(),
   cachedMediaIds: z.array(z.string()).optional(),
   cacheUsedBytes: z.number().optional(),
+  /**
+   * Storage accounting, sent with `insufficient_storage` so the dashboard can
+   * state the shortfall in plain language instead of showing a bare status.
+   * All optional: an older agent sends none of them.
+   */
+  requiredBytes: z.number().nonnegative().optional(),
+  availableBytes: z.number().nonnegative().optional(),
+  reclaimableBytes: z.number().nonnegative().optional(),
+  cacheBudgetBytes: z.number().nonnegative().optional(),
+  shortfallBytes: z.number().nonnegative().optional(),
 });
 
 export const deviceLogsSchema = z.object({

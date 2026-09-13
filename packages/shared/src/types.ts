@@ -63,6 +63,12 @@ export interface DeviceMetrics {
   diskFreeBytes?: number | null;
   diskTotalBytes?: number | null;
   cacheUsedBytes?: number | null;
+  /** Cache guard state (T017); absent on devices running an older agent. */
+  cacheBudgetBytes?: number | null;
+  cachedFileCount?: number | null;
+  lastIntegrityCheckAt?: string | null;
+  /** How much more room the device needs; null once it syncs successfully. */
+  storageShortfallBytes?: number | null;
   screenWidth?: number | null;
   screenHeight?: number | null;
   networkType?: string | null;

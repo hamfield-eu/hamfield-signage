@@ -15,12 +15,14 @@ import { api } from '../lib/api';
 import { useOrgId } from '../lib/auth';
 import { formatBytes, timeAgo } from '../lib/format';
 import { useApi } from '../lib/hooks';
+import { SYNC_STATUS_LABEL } from './Devices';
 
 const SYNC_TONE: Record<string, 'green' | 'yellow' | 'red' | 'gray'> = {
   in_sync: 'green',
   syncing: 'yellow',
   never_synced: 'gray',
   error: 'red',
+  insufficient_storage: 'red',
 };
 
 function StatCard({ label, value, tone }: { label: string; value: number; tone?: string }) {
@@ -43,7 +45,9 @@ export function MonitoringPage() {
   const online = list.filter((d) => d.online);
   const offline = list.filter((d) => !d.online && d.paired);
   const unpaired = list.filter((d) => !d.paired);
-  const withIssues = list.filter((d) => d.lastError || d.syncStatus === 'error');
+  const withIssues = list.filter(
+    (d) => d.lastError || d.syncStatus === 'error' || d.syncStatus === 'insufficient_storage',
+  );
 
   return (
     <div>
@@ -118,7 +122,7 @@ export function MonitoringPage() {
                         </Td>
                         <Td>
                           <Badge tone={SYNC_TONE[device.syncStatus] ?? 'gray'}>
-                            {device.syncStatus}
+                            {SYNC_STATUS_LABEL[device.syncStatus] ?? device.syncStatus}
                           </Badge>
                         </Td>
                         <Td>{timeAgo(device.lastSeenAt)}</Td>

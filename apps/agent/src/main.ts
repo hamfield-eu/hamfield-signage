@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import pino from 'pino';
+import { HEARTBEAT_INTERVAL_SECONDS, POLL_FALLBACK_INTERVAL_SECONDS } from '@signage/shared';
 import { ApiClient, loadCredentials, saveCredentials, type Credentials } from './api-client';
 import { BackendConnection } from './backend-ws';
 import { CommandExecutor } from './commands';
@@ -13,9 +14,9 @@ import { computePlayerState } from './state';
 import { SyncEngine } from './sync';
 
 const STATE_INTERVAL_MS = 15_000;
-const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_INTERVAL_MS = HEARTBEAT_INTERVAL_SECONDS * 1_000;
 const FLUSH_INTERVAL_MS = 60_000;
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = POLL_FALLBACK_INTERVAL_SECONDS * 1_000;
 const PAIR_RETRY_MS = 15_000;
 /** How long after the last successful HTTP call we still count as online. */
 const HTTP_ONLINE_WINDOW_MS = 90_000;
@@ -76,6 +77,10 @@ export async function startAgent(env: NodeJS.ProcessEnv = process.env): Promise<
       backend?.sendStatus({ ...position, manifestVersion: db.getManifestVersion() });
     } else if (event.eventType === 'error') {
       lastError = `playback error on media ${event.mediaId}`;
+      // The cheapest corruption signal there is: the player could not play this
+      // exact file. Queue it for a full re-hash on the next integrity pass
+      // rather than waiting for its turn in the weekly rotation.
+      if (event.mediaId) sync.noteSuspectMedia(event.mediaId);
     }
   });
 
@@ -139,13 +144,13 @@ export async function startAgent(env: NodeJS.ProcessEnv = process.env): Promise<
     playerServer,
     ws: () => backend,
     getManifestVersion: () => db.getManifestVersion(),
-    getMetrics: () => collectMetrics(config, db, position, lastError),
+    getMetrics: () => collectMetrics(config, db, position, lastError, sync.cacheReport()),
     flushBuffers,
     log,
   });
 
   const sendHeartbeat = async (): Promise<void> => {
-    const metrics = await collectMetrics(config, db, position, lastError);
+    const metrics = await collectMetrics(config, db, position, lastError, sync.cacheReport());
     if (backend?.sendHeartbeat(metrics)) return;
     try {
       await api.heartbeat(metrics);
@@ -233,6 +238,9 @@ export async function startAgent(env: NodeJS.ProcessEnv = process.env): Promise<
     );
     backend.start();
 
+    // Before the first sync: a file damaged while the agent was down must be
+    // repaired even when the server manifest has not changed since.
+    await sync.maintainCache('startup');
     await sync.syncNow('startup');
     await sendHeartbeat().catch(() => undefined);
 

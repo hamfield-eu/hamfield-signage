@@ -1,12 +1,12 @@
 # T017 — Device cache integrity and disk guard
 
-| | |
-|---|---|
-| **Estimate** | M |
-| **Risk** | Medium — touches the sync engine, which is the code path that must never break playback. LRU eviction deletes files on customer devices |
-| **Depends on** | None technically. Coordinate with **T015** (the watchdog must not reboot a device whose real problem is a full disk) |
-| **Blocks** | Production use of any device with small internal storage — i.e. most x86 thin clients (**T016**) |
-| **Status** | Not started |
+|                |                                                                                                                                                                                                                                                                                                      |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Estimate**   | M                                                                                                                                                                                                                                                                                                    |
+| **Risk**       | Medium — touches the sync engine, which is the code path that must never break playback. LRU eviction deletes files on customer devices                                                                                                                                                              |
+| **Depends on** | None technically. Coordinate with **T015** (the watchdog must not reboot a device whose real problem is a full disk)                                                                                                                                                                                 |
+| **Blocks**     | Production use of any device with small internal storage — i.e. most x86 thin clients (**T016**)                                                                                                                                                                                                     |
+| **Status**     | **Implemented 2026-09-10.** Integrity + repair, the storage precheck and the `insufficient_storage` status, orphan/`.part` sweep, opt-in LRU eviction, metrics and the dead-constant cleanup. Not deployed, and `sync.test.ts` could not be executed in this environment — see "Outcome" at the end. |
 
 > Self-contained by design: a fresh Claude Code session has no memory of the
 > review that produced this file.
@@ -30,7 +30,7 @@ unrecoverable without manual intervention**:
 Graded **A3 — Critical before real customer use**. Both findings are CONFIRMED
 by reading the code.
 
-### F5 — Cached files are never re-validated against disk *(CONFIRMED)*
+### F5 — Cached files are never re-validated against disk _(CONFIRMED)_
 
 `packages/sync-protocol/src/manifest.ts:48` — `diffManifest` decides what to
 download by comparing the manifest against the **SQLite cache index only**:
@@ -38,7 +38,7 @@ download by comparing the manifest against the **SQLite cache index only**:
 ```ts
 const entry = cachedByMedia.get(media.id);
 if (entry && entry.checksum === media.checksum) {
-  unchanged.push(media);          // never re-downloaded
+  unchanged.push(media); // never re-downloaded
 } else {
   toDownload.push(media);
 }
@@ -59,7 +59,7 @@ The only escape today is the `clear_cache` command
 (`apps/agent/src/commands.ts` → `SyncEngine.clearCacheAndResync`), which nukes
 and re-downloads **everything**.
 
-### F6 — No free-space precheck and no cache cap *(CONFIRMED)*
+### F6 — No free-space precheck and no cache cap _(CONFIRMED)_
 
 `apps/agent/src/sync.ts:89-118`:
 
@@ -80,7 +80,7 @@ Two problems compound:
   `collectMetrics` computes `diskFreeBytes` for the heartbeat, but nothing
   consumes it as a guard. `bytesToDownload(diff)` already exists in
   `packages/sync-protocol/src/manifest.ts` and is used only for a log line.
-- **Downloads complete before deletions happen.** This ordering is *correct* for
+- **Downloads complete before deletions happen.** This ordering is _correct_ for
   crash safety (a crash leaves orphans, never a dangling index) and must be
   preserved — but it means the device transiently needs `old + new` bytes. A
   playlist swap that replaces 6 GB with 6 GB needs 12 GB free.
@@ -90,12 +90,14 @@ Result: ENOSPC mid-download → the catch block reports `sync-status: failed`
 next poll tries the identical sync and fails identically. **It never converges**,
 and the only signal is a string in `Device.lastError`.
 
-### The cache cap is dead code *(CONFIRMED)*
+### The cache cap is dead code _(CONFIRMED)_
 
 `packages/shared/src/constants.ts` declares:
+
 ```ts
 export const DEFAULT_MAX_CACHE_SIZE_GB = 8;
 ```
+
 Grep confirms **zero consumers**. There is no cache budget, no LRU, no eviction.
 (Several sibling constants — `HEARTBEAT_INTERVAL_SECONDS`,
 `SYNC_INTERVAL_SECONDS`, `POLL_FALLBACK_INTERVAL_SECONDS`,
@@ -201,7 +203,7 @@ reclaimable = bytes held by cache entries in diff.toDelete
   1. **Stream deletions safely:** delete a `toDelete` file only once its
      replacement has been downloaded and verified. Requires care — a crash
      mid-way must still leave a consistent index. Safest variant: download in
-     batches, and after each batch commit only the *additions* to the index,
+     batches, and after each batch commit only the _additions_ to the index,
      deleting stale files whose ids are no longer in the manifest.
   2. **Two-phase sync:** commit an intermediate manifest state. More complex.
   3. **Simplest acceptable:** report `insufficient_storage` and require the
@@ -303,6 +305,7 @@ them, so the shared module stops lying about being the source of truth.
 ## Testing checklist
 
 **Unit / integration — extend `apps/agent/src/sync.test.ts`:**
+
 - [ ] Cache index says present, file missing → re-downloaded.
 - [ ] Cache index says present, file truncated → detected by size, re-downloaded.
 - [ ] Cache index says present, file same size but wrong content → detected by
@@ -319,6 +322,7 @@ them, so the shared module stops lying about being the source of truth.
       coalesce (`syncing`/`queued` in `SyncEngine`).
 
 **On-device:**
+
 - [ ] Fill `/var/lib/signage` to ~99% with `fallocate`, add media to the playlist
       → confirm `insufficient_storage`, content keeps playing, dashboard shows the
       shortfall. **This test fails today** — it is the acceptance test for F6.
@@ -328,7 +332,7 @@ them, so the shared module stops lying about being the source of truth.
       index entries, sync converges.
 - [ ] Large playlist swap (replace most content) on a device with ~1.5× the
       required free space → confirm the behaviour matches whichever option was
-      chosen in step 2, and that it is *documented*.
+      chosen in step 2, and that it is _documented_.
 - [ ] Verify integrity hashing does not cause visible playback stutter on the
       target hardware (eMMC read contention) — throttle if it does.
 - [ ] **Interaction with T015:** a device in `insufficient_storage` with an
@@ -350,7 +354,7 @@ them, so the shared module stops lying about being the source of truth.
 - Roll out to one device via `software_update` (`infra/device/update.sh`) and
   watch for 48 h before the fleet.
 - The `insufficient_storage` enum value requires a Postgres `ALTER TYPE ... ADD
-  VALUE`, which cannot run in a transaction — a failure can leave the enum
+VALUE`, which cannot run in a transaction — a failure can leave the enum
   partially altered. Take a verified backup first (T011) and deploy the server
   side before the agent side.
 - Consider making the integrity re-hash pass abortable and low-priority. On a
@@ -359,3 +363,194 @@ them, so the shared module stops lying about being the source of truth.
   by default.
 - Keep `clear_cache` working as the operator's blunt-instrument fallback — it is
   the current workaround documented in the runbook (T014) and should remain.
+
+---
+
+## Outcome (2026-09-10)
+
+Both failure modes are closed in the repository. Nothing is deployed, and one
+class of test could not be run here — details at the end, because they change
+what this can be trusted for.
+
+### What shipped
+
+**1. Cache integrity and repair.** `verifyCache` in
+`apps/agent/src/cache-maintenance.ts` runs at agent startup and after every
+applied sync, in two tiers: `stat` every file each pass (catches missing and
+truncated, one syscall each), and fully re-hash a bounded few, oldest
+verification first, so each file is checked roughly weekly. Same-size corruption
+is only visible to the second tier, and the second tier is rate-limited on
+purpose — hashing several gigabytes saturates eMMC read bandwidth and would
+itself cause the decode stalls T015 exists to remove.
+
+A file the player has just reported a playback error on is re-hashed
+**immediately, out of rotation**. That error event is the cheapest corruption
+signal in the system and it was already flowing into `main.ts`; it now reaches
+the sync engine through `noteSuspectMedia`.
+
+Repair deletes the file and its index row, which is what puts the media back
+into `toDownload`, then re-fetches it through the ordinary download path — same
+checksum verification, same temp-file handling, same commit. No second download
+path was invented.
+
+**2. The repair path needed a `force` flag, and this is the part the task
+plan got wrong.** The plan says: drop the row, trigger a sync, let `diffManifest`
+do the rest. But `runSync` returns at
+`if (manifest.version === currentVersion)` — and after a local repair the server
+manifest is byte-identical to the one already applied, so the diff never runs and
+the file is never re-fetched. A unit test calling `diffManifest` directly would
+have passed while F5 stayed open. `syncNow(reason, { force: true })` skips only
+that shortcut; everything downstream is unchanged. The regression tests drive
+this through `maintainCache` end to end, not through `diffManifest`.
+
+Automatic re-fetch is **rate-limited to once per 10 minutes**. Maintenance runs
+at the end of every sync, so without that a device whose storage is physically
+failing would corrupt a file, repair it, corrupt it again, and loop —
+re-downloading the whole playlist continuously over the customer's network. The
+damage is still detected and reported on every pass; only the re-fetch waits.
+
+**3. The storage precheck.** Before a single byte is written, `planStorage`
+compares required bytes plus a free-space headroom against `statfs`, and the
+manifest's total size against the cache budget. Not enough room means the sync
+**does not start**: it reports `insufficient_storage` with
+required/available/reclaimable/shortfall, buffers a log line, and leaves the
+previous manifest, index and files untouched. The screen keeps playing.
+
+That is the whole difference from today, where the sync starts, hits ENOSPC
+part-way, aborts, and the next poll repeats the identical failure forever with
+nothing but a string in `lastError` to show for it.
+
+ENOSPC is also caught explicitly inside the download loop and mapped to the same
+status — the precheck can still be beaten by another process taking the space.
+
+**Reclaimable bytes are reported but deliberately not counted as available.**
+This is option (3) from the task's step 2, and the reasoning is the valuable
+part: option (1) — deleting stale files early to make room for a large swap —
+means either deleting a file while leaving its index row, which manufactures
+exactly the F5 bug this task fixes, or removing the row too, which drops the
+media out of `cachedMediaIds` and takes it off the screen while the old manifest
+is still the active one. Either way it breaks the promise that the old content
+keeps playing through a failed sync. The device genuinely needs `old + new`
+space for a swap, and saying so plainly beats a clever scheme that can blank a
+screen.
+
+**4. `insufficient_storage`** as a device status, kept **distinct from `error`**
+end to end: `SYNC_STATUSES`, the Prisma enum, `syncStatusSchema`,
+`REPORTED_SYNC_STATUS`, and the dashboard. The distinction is the point — this
+is the one sync failure an operator can act on, and the action ("smaller
+playlist, or a bigger disk") is different from "something went wrong".
+
+The agent falls back to `failed` when a pre-T017 server rejects the new value
+with a 400. Note that this needed an explicit catch: every `reportSyncStatus`
+call site ends in `.catch(() => undefined)`, so without one the 400 would have
+been swallowed and the device would have shown a stale status instead.
+
+**5. Cache budget and opt-in eviction.** `DEFAULT_MAX_CACHE_SIZE_GB` is finally
+wired up, capped at 70% of the filesystem so a small eMMC does not hand most of
+its disk to media. Eviction is **default-off** (`SIGNAGE_CACHE_EVICTION`), logs
+every deletion to the buffered device log, and **never selects a file the
+current manifest references** — that would break offline playback, and a device
+with no network could not get the file back. A manifest that does not fit is an
+`insufficient_storage` condition, not something eviction may paper over.
+
+**Wiring `DEFAULT_MAX_CACHE_SIZE_GB` up is a behaviour change, not just a
+cleanup.** While the constant was dead, a device with a 12 GB playlist on a
+roomy disk synced happily; now it would refuse every sync and report
+`insufficient_storage` until someone raised `SIGNAGE_MAX_CACHE_GB`. That is what
+the task asks for, but it is a silent regression for any existing device over
+the cap, so it was checked against production before shipping rather than after
+(2026-09-10, `signage.hamfield.eu`):
+
+|                                       |                                                                             |
+| ------------------------------------- | --------------------------------------------------------------------------- |
+| All non-deleted media, whole platform | **672 MB**                                                                  |
+| Device disks                          | 14 GB each → the 70% cap yields 9.8 GB, so the 8 GB default is what applies |
+| Cache in use                          | 625 MB and 4.7 MB on the two live screens                                   |
+
+No device is anywhere near the cap, so this ships as-is. Worth noting for later:
+the busier screen has only 4.6 GB free on its 14 GB disk, so **free space, not
+the budget, is the limit that will bite first** — which is the correct order,
+since it is the one that used to produce the endless-retry loop.
+
+**6. Orphan and `.part` sweep**, past a grace period and skipped while a sync is
+running. Both guards matter: `downloadMedia` renames into the media directory
+before `applyManifest` commits the rows, so an unindexed file is _normal_ for the
+duration of a sync, and a sweep without them would delete a download in flight.
+
+**7. Observability.** `cacheBudgetBytes`, `cachedFileCount`,
+`lastIntegrityCheckAt`, `integrityFailureCount` and `orphanFilesRemoved` ride the
+heartbeat; `storageShortfallBytes` is stored on the device and cleared on the
+next successful sync, so the dashboard cannot show a stale "needs 2.4 GB more"
+after the operator has fixed it. The device page shows cache used against
+budget, cached file count, last integrity check, and a plain-language
+explanation of the shortfall.
+
+**8. Dead constants.** `DEFAULT_MAX_CACHE_SIZE_GB`, `HEARTBEAT_INTERVAL_SECONDS`,
+`POLL_FALLBACK_INTERVAL_SECONDS` and `DEFAULT_IMAGE_DURATION_SECONDS` are now
+used by the code that had been hardcoding the same numbers. `SYNC_INTERVAL_SECONDS`
+was **deleted**: the agent has no sync timer — it syncs on the poll fallback, on
+a server push, and on command — so the constant described a mechanism that does
+not exist.
+
+### Migration
+
+`20260910190000_device_storage_guard` is additive: one `ALTER TYPE ... ADD VALUE
+IF NOT EXISTS` plus four nullable columns. It matches the shape of
+`20260624000000_per_device_encoding_tiers`, which already ran on production —
+which settles the "cannot run in a transaction" warning empirically: since
+PostgreSQL 12 it can, provided the migration does not _use_ the new value. This
+one does not, and there is a comment in the file saying so, because adding a
+statement that does would break it.
+
+**Deploy the server before the agent**, and take a tagged pre-upgrade backup
+first (runbook §7).
+
+### Testing
+
+28 new tests that run today, covering the parts that decide whether a device
+downloads or deletes a customer's files:
+
+- `cache-policy.test.ts` (17) — budget capping on a small disk, the precheck
+  including that reclaimable bytes are **not** treated as available, headroom
+  being kept rather than filling the disk to the last byte, `over_budget`
+  reported ahead of `disk_full` because eviction cannot fix it, LRU ordering by
+  real playback rather than download date, and that a referenced file is never
+  an eviction candidate.
+- `cache-maintenance.test.ts` (11) — missing, truncated and same-size-corrupt
+  files; that `stat` alone deliberately cannot see the third; forced re-hash
+  after a playback error; the orphan grace period that keeps the sweep from
+  racing an in-flight download; `.part` cleanup.
+
+`apps/agent/src/sync.test.ts` gained **16** end-to-end cases — the F5 and F6
+acceptance tests among them, driven through `syncNow`/`maintainCache` against
+the existing stub backend rather than through the pure helpers.
+
+### Not verified — read this before trusting any of it
+
+- **`sync.test.ts` cannot execute in this environment.** `better-sqlite3` has no
+  compiled binding for Node 24 and `node-gyp` cannot build one because `make` is
+  absent. Its four pre-existing tests already failed here on a clean `HEAD` for
+  the same reason; the 16 new ones are **written and typechecked but never
+  run**. `pnpm rebuild better-sqlite3` after installing a C toolchain is all it
+  should need.
+- **Nothing has run on a device.** The two acceptance tests the task calls out —
+  `fallocate` the disk to 99% and confirm `insufficient_storage`; `truncate -s 0`
+  a cached file and confirm automatic repair — are exactly the ones that need
+  real hardware.
+- **The T015 interaction is reasoned, not measured.** A device in
+  `insufficient_storage` should not be "recovered" by a reboot. The liveness
+  monitor shipped in T015 only reports, never restarts, so today it cannot do
+  the wrong thing — but that constraint must be honoured when the recovery
+  ladder is eventually built, and the ladder is where the coupling becomes real.
+- **LRU bookkeeping is throttled to once per five minutes per media id.**
+  `serveMedia` answers Range requests — that is what `accept-ranges` is for —
+  and a buffering Chromium issues a stream of them; an unthrottled synchronous
+  SQLite write per range would put flash writes in the middle of the one code
+  path that must never disturb playback. Eviction orders by day-scale recency,
+  so the coarse resolution costs nothing. Not covered by a test: nothing here
+  exercises request volume, and it would only show up on real hardware.
+- **The repair cooldown is not covered by a test** — it lives in `SyncEngine`,
+  so its test would be in the file that cannot run here.
+- **Eviction has never run against a real cache**, which is why it is off by
+  default. Turn it on per device only after the integrity and precheck work has
+  been running cleanly.

@@ -102,12 +102,40 @@ export class ApiClient {
 
   async reportSyncStatus(body: {
     manifestVersion: string;
-    status: 'applied' | 'failed' | 'downloading';
+    status: 'applied' | 'failed' | 'downloading' | 'insufficient_storage';
     error?: string;
     cachedMediaIds?: string[];
     cacheUsedBytes?: number;
+    requiredBytes?: number;
+    availableBytes?: number;
+    reclaimableBytes?: number;
+    cacheBudgetBytes?: number;
+    shortfallBytes?: number;
   }): Promise<void> {
-    await this.request('POST', '/device/sync-status', body);
+    try {
+      await this.request('POST', '/device/sync-status', body);
+    } catch (err) {
+      // A server older than T017 rejects `insufficient_storage` with a 400 from
+      // its zod schema. Downgrade rather than lose the report entirely: the
+      // operator still learns the device is stuck and why, just without the
+      // distinct status. Any other failure propagates as before.
+      if (
+        body.status !== 'insufficient_storage' ||
+        !(err instanceof ApiError) ||
+        err.statusCode !== 400
+      )
+        throw err;
+      await this.request('POST', '/device/sync-status', {
+        ...body,
+        status: 'failed',
+        error: body.error ?? 'insufficient storage for the current playlist',
+        requiredBytes: undefined,
+        availableBytes: undefined,
+        reclaimableBytes: undefined,
+        cacheBudgetBytes: undefined,
+        shortfallBytes: undefined,
+      });
+    }
   }
 
   async sendLogs(

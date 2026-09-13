@@ -56,6 +56,10 @@ Flags:
 | `SIGNAGE_UPDATE_URL`           | (unset)                          | Release tarball URL for self-update                              |
 | `SIGNAGE_ALLOW_REBOOT`         | `true`                           | Whether `reboot_device` is honored                               |
 | `SIGNAGE_PLAYER_SERVICE`       | `signage-player.service`         | Unit restarted by `restart_player`                               |
+| `SIGNAGE_MAX_CACHE_GB`         | `8`                              | Media cache budget; also capped at 70% of the disk               |
+| `SIGNAGE_MIN_FREE_DISK_MB`     | `500`                            | Free space a sync will not eat into                              |
+| `SIGNAGE_CACHE_EVICTION`       | `false`                          | LRU eviction of unreferenced cached files (opt-in)               |
+| `SIGNAGE_CACHE_HASH_PER_PASS`  | `2`                              | Cached files fully re-hashed per integrity pass                  |
 | `SIGNAGE_LOG_LEVEL`            | `info`                           | Agent log level                                                  |
 | `SIGNAGE_KIOSK_GPU`            | `auto`                           | Chromium GPU backend: `auto` \| `vulkan` \| `gles` \| `software` |
 | `SIGNAGE_CHROMIUM_EXTRA_FLAGS` | (unset)                          | Extra space-separated flags appended to the kiosk Chromium       |

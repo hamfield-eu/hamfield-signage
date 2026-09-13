@@ -9,6 +9,9 @@ import type { AgentConfig } from './config';
 import type { AgentDb } from './db';
 import { stateFingerprint } from './state';
 
+/** Minimum gap between LRU bookkeeping writes for one media id. */
+const CACHE_USE_WRITE_INTERVAL_MS = 5 * 60_000;
+
 const STATIC_MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -49,6 +52,8 @@ export class PlayerServer {
   private sockets = new Set<WebSocket>();
   private state: PlayerState;
   private fingerprint = '';
+  /** Last LRU write per media id; see `noteCacheUse`. */
+  private lastUseWrite = new Map<string, number>();
 
   constructor(
     private config: AgentConfig,
@@ -190,6 +195,24 @@ export class PlayerServer {
     await this.serveStatic(pathname, res);
   }
 
+  /**
+   * Records real last-use, so eviction is an LRU rather than "oldest download".
+   *
+   * Throttled hard, and that matters: this route serves Range requests — that
+   * is what `accept-ranges` is for — and Chromium issues a stream of them while
+   * buffering a single video. An unthrottled synchronous SQLite write per range
+   * would put flash writes in the middle of the one code path that must never
+   * disturb playback. Eviction orders by day-scale recency, so a five-minute
+   * resolution loses nothing.
+   */
+  private noteCacheUse(mediaId: string): void {
+    const now = Date.now();
+    const last = this.lastUseWrite.get(mediaId) ?? 0;
+    if (now - last < CACHE_USE_WRITE_INTERVAL_MS) return;
+    this.lastUseWrite.set(mediaId, now);
+    this.db.touchCacheUse(mediaId);
+  }
+
   private async serveMedia(
     mediaId: string,
     req: http.IncomingMessage,
@@ -200,6 +223,7 @@ export class PlayerServer {
       res.writeHead(404).end();
       return;
     }
+    this.noteCacheUse(mediaId);
     let size: number;
     try {
       size = (await stat(entry.filePath)).size;

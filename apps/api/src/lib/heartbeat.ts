@@ -38,6 +38,11 @@ export async function applyHeartbeat(
         currentMediaId: body.currentMediaId,
         manifestVersion: body.manifestVersion,
         lastError: body.lastError,
+        cacheBudgetBytes: big(body.cacheBudgetBytes),
+        cachedFileCount: body.cachedFileCount,
+        lastIntegrityCheckAt: body.lastIntegrityCheckAt
+          ? new Date(body.lastIntegrityCheckAt)
+          : undefined,
       },
     }),
     prisma.deviceHeartbeat.create({

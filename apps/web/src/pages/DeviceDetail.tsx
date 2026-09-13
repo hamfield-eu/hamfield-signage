@@ -22,7 +22,7 @@ import {
   Td,
   Th,
 } from '../components/ui';
-import { PairingCodeNote } from './Devices';
+import { PairingCodeNote, SYNC_STATUS_LABEL } from './Devices';
 import { api } from '../lib/api';
 import { useOrgId } from '../lib/auth';
 import { formatBytes, formatDateTime, formatUptime, timeAgo } from '../lib/format';
@@ -205,14 +205,15 @@ function OverviewTab({
                   tone={
                     device.syncStatus === 'in_sync'
                       ? 'green'
-                      : device.syncStatus === 'error'
+                      : device.syncStatus === 'error' ||
+                          device.syncStatus === 'insufficient_storage'
                         ? 'red'
                         : device.syncStatus === 'syncing'
                           ? 'yellow'
                           : 'gray'
                   }
                 >
-                  {device.syncStatus}
+                  {SYNC_STATUS_LABEL[device.syncStatus] ?? device.syncStatus}
                 </Badge>
               }
             />
@@ -234,9 +235,34 @@ function OverviewTab({
               label="Disk free"
               value={m.diskFreeBytes != null ? formatBytes(m.diskFreeBytes) : '—'}
             />
-            <Stat label="Cache" value={formatBytes(m.cacheUsedBytes)} />
+            <Stat
+              label="Cache"
+              value={
+                m.cacheBudgetBytes != null
+                  ? `${formatBytes(m.cacheUsedBytes)} / ${formatBytes(m.cacheBudgetBytes)}`
+                  : formatBytes(m.cacheUsedBytes)
+              }
+            />
+            <Stat
+              label="Cached files"
+              value={m.cachedFileCount != null ? String(m.cachedFileCount) : '—'}
+            />
+            <Stat label="Integrity check" value={timeAgo(m.lastIntegrityCheckAt)} />
             <Stat label="IP" value={device.lastIp ?? '—'} />
           </div>
+          {device.syncStatus === 'insufficient_storage' ? (
+            <div className="mt-3">
+              <ErrorNote
+                message={
+                  m.storageShortfallBytes != null
+                    ? `Not enough storage: this screen needs ${formatBytes(
+                        m.storageShortfallBytes,
+                      )} more space for its current playlist. It is still playing the content it already cached — free space on the device, raise its cache budget, or remove items from the playlist.`
+                    : 'Not enough storage for the current playlist. The screen is still playing the content it already cached.'
+                }
+              />
+            </div>
+          ) : null}
           {device.lastError ? (
             <div className="mt-3">
               <ErrorNote message={`Device error: ${device.lastError}`} />

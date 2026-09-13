@@ -135,15 +135,29 @@ change up on the next interval.
 ## Sync algorithm (agent)
 
 The agent keeps a SQLite database (`better-sqlite3`) with the applied manifest,
-a `media_cache` index (`mediaId`, `checksum`, `sizeBytes`, file path), and
-bounded log/event buffers. One sync pass:
+a `media_cache` index (`mediaId`, `checksum`, `sizeBytes`, file path, last
+verified, last used), and bounded log/event buffers. One sync pass:
 
 1. **Fetch** the manifest. If `version` equals the applied version → done.
+   A **repair** sync skips this shortcut: after a damaged file is dropped from
+   the index the server manifest is unchanged, so the version check would
+   otherwise return before the diff ever ran.
 2. **Diff** (`diffManifest`) the manifest's media list against the cache index by
    id + checksum → `toDownload`, `toDelete`, `unchanged`. A changed checksum for
    the same id is treated as a new download (media replacement).
-3. **Report** `sync-status: downloading` when there is anything to fetch.
-4. **Download** each new file from its `downloadPath` to a **temp file**, compute
+3. **Check storage** before writing a single byte. Required bytes
+   (`bytesToDownload`) plus a free-space headroom against `statfs`, and the
+   manifest's total size against the cache budget.
+   - Not enough room → **do not start**. Report
+     `sync-status: insufficient_storage` with required / available /
+     reclaimable / shortfall, buffer a log line, and leave the previous
+     manifest, index and files untouched. The screen keeps playing.
+   - Note that reclaimable bytes — what step 6 would give back — are reported
+     but **not** counted as available. Freeing them early would delete files the
+     still-active manifest is playing from, so a large swap genuinely needs
+     `old + new` space.
+4. **Report** `sync-status: downloading` when there is anything to fetch.
+5. **Download** each new file from its `downloadPath` to a **temp file**, compute
    SHA-256 while streaming, and compare with the manifest checksum.
    - Mismatch or failed download → delete the temp file and **abort the whole
      sync**: report `sync-status: failed` with the reason, buffer a log line, and
@@ -151,17 +165,49 @@ bounded log/event buffers. One sync pass:
      keeps playing the old content. The sync is retried later (next poll,
      `sync_required` push, or `refresh_content` command).
    - Match → atomically rename the temp file into the media directory.
-5. **Commit** — in a single SQLite transaction: store the new manifest +
+6. **Commit** — in a single SQLite transaction: store the new manifest +
    `version` and replace the cache index rows. This is the atomic switch; the
    player state recomputes from the new manifest immediately after.
-6. **Clean up** — only after the commit, delete files for `toDelete` entries.
+7. **Clean up** — only after the commit, delete files for `toDelete` entries.
    A crash between commit and cleanup leaves harmless orphan files that the next
    sync removes; the reverse order could delete files the current manifest needs.
-7. **Report** `sync-status: applied` with the new version. The dashboard renders
-   this as the screen's sync state (`never_synced | syncing | in_sync | error`).
+8. **Report** `sync-status: applied` with the new version. The dashboard renders
+   this as the screen's sync state
+   (`never_synced | syncing | in_sync | error | insufficient_storage`).
+9. **Maintain the cache** — after the commit, never before it. Verify the index
+   against the disk, repair what is damaged, sweep orphans, and evict
+   unreferenced files over budget when eviction is enabled.
 
 Concurrent triggers (poll timer, WS push, command) are coalesced: a sync request
 arriving mid-run queues exactly one re-run instead of racing.
+
+### Cache integrity (agent)
+
+The index alone is not evidence that a file is on disk. Verification runs at
+agent startup and after every applied sync, in two tiers:
+
+- **Cheap, every pass:** `stat` each cached file. Missing, or a size that does
+  not match the index, is damage.
+- **Expensive, bounded:** re-hash a few files per pass, oldest verification
+  first, so each file is checked roughly weekly. This is the only way to catch
+  corruption that preserves the file size, and it is rate-limited because
+  hashing gigabytes saturates eMMC read bandwidth and would itself cause
+  playback stalls. A file the player has just reported a playback error on is
+  re-hashed immediately, out of rotation.
+
+Damaged files are deleted along with their index rows, which is what puts them
+back into `toDownload`; a forced sync then re-fetches them through the ordinary
+download-verify-commit path. **Repair never aborts the sync** — a single bad
+file re-downloads that file, and only a genuine download failure aborts.
+
+Files present in the media directory with no index row are orphans (step 7's
+documented crash window). They are swept once past a grace period, and never
+while a sync is running.
+
+**Eviction never selects a file the current manifest references.** Doing so
+would break offline playback, which the whole design exists to guarantee. A
+manifest that does not fit the budget is an `insufficient_storage` condition,
+not something eviction may paper over.
 
 ## Playback resolution
 
@@ -225,14 +271,17 @@ ingestion idempotent so plays are never double-counted.
 
 ## Failure-mode summary
 
-| Failure                               | Outcome                                                                       |
-| ------------------------------------- | ----------------------------------------------------------------------------- |
-| Network down                          | Cached manifest keeps playing; schedules keep switching on-device.            |
-| Download interrupted                  | Temp file discarded; sync retried; old content unaffected.                    |
-| Checksum mismatch (corruption/tamper) | Whole sync rejected; `failed` status reported; old content unaffected.        |
-| Crash mid-download                    | Temp files ignored/overwritten on the next pass.                              |
-| Crash after commit, before cleanup    | Orphan files only; removed by next sync.                                      |
-| Unknown `protocolVersion`             | Sync error reported; cached content keeps playing until the agent is updated. |
+| Failure                               | Outcome                                                                                                                                             |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Network down                          | Cached manifest keeps playing; schedules keep switching on-device.                                                                                  |
+| Download interrupted                  | Temp file discarded; sync retried; old content unaffected.                                                                                          |
+| Checksum mismatch (corruption/tamper) | Whole sync rejected; `failed` status reported; old content unaffected.                                                                              |
+| Crash mid-download                    | Temp files ignored/overwritten on the next pass.                                                                                                    |
+| Crash after commit, before cleanup    | Orphan files only; swept once past the grace period.                                                                                                |
+| Cached file deleted or truncated      | Detected by the integrity pass; row and file dropped, then re-downloaded.                                                                           |
+| Cached file corrupt at the same size  | Detected on the periodic re-hash (or immediately after a playback error).                                                                           |
+| Not enough disk or cache budget       | Sync refuses to start; `insufficient_storage` reported with the shortfall; old content keeps playing and recovers automatically once there is room. |
+| Unknown `protocolVersion`             | Sync error reported; cached content keeps playing until the agent is updated.                                                                       |
 
 These guarantees are covered by tests in `apps/agent/src/sync.test.ts` and
 `packages/sync-protocol`.

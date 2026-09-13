@@ -31,6 +31,16 @@ const SYNC_TONE: Record<string, 'green' | 'yellow' | 'red' | 'gray'> = {
   syncing: 'yellow',
   never_synced: 'gray',
   error: 'red',
+  insufficient_storage: 'red',
+};
+
+/** Raw enum values are not operator-facing text. */
+export const SYNC_STATUS_LABEL: Record<string, string> = {
+  in_sync: 'in sync',
+  syncing: 'syncing',
+  never_synced: 'never synced',
+  error: 'error',
+  insufficient_storage: 'storage full',
 };
 
 export function PairingCodeNote({ device }: { device: DeviceDto }) {
@@ -123,7 +133,9 @@ export function DevicesPage() {
                     )}
                   </Td>
                   <Td>
-                    <Badge tone={SYNC_TONE[device.syncStatus] ?? 'gray'}>{device.syncStatus}</Badge>
+                    <Badge tone={SYNC_TONE[device.syncStatus] ?? 'gray'}>
+                      {SYNC_STATUS_LABEL[device.syncStatus] ?? device.syncStatus}
+                    </Badge>
                   </Td>
                   <Td>{timeAgo(device.lastSeenAt)}</Td>
                 </tr>
