@@ -25,12 +25,12 @@ step actually showed.
 
 ## Status summary
 
-| Model                | Arch   | Compositing | H.264 decode | Soak | Status          |
-| -------------------- | ------ | ----------- | ------------ | ---- | --------------- |
-| Raspberry Pi 4/5     | ARM64  | Vulkan      | software     | —    | In production   |
-| ODROID-C4            | ARM64  | software    | software     | —    | In production   |
-| Acer Chromebox CXI3  | x86-64 | **gles** ✓  | driver ready | —    | Decode unproven |
-| Chromebox (2nd unit) | x86-64 | —           | —            | —    | **UNVALIDATED** |
+| Model                | Arch   | Compositing    | H.264 decode                  | Soak | Status             |
+| -------------------- | ------ | -------------- | ----------------------------- | ---- | ------------------ |
+| Raspberry Pi 4/5     | ARM64  | Vulkan         | software                      | —    | In production      |
+| ODROID-C4            | ARM64  | software       | software                      | —    | In production      |
+| Acer Chromebox CXI3  | x86-64 | **hardware** ✓ | software (no VA-API in build) | —    | Validated, no soak |
+| Chromebox (2nd unit) | x86-64 | —              | —                             | —    | **UNVALIDATED**    |
 
 > **Fleet-wide, as of 2026-09-13: nothing has hardware video decode.** No VA-API
 > packages are installed by `install.sh` on any platform, and neither the
@@ -67,9 +67,8 @@ arm of the driver `case` in `start-player.sh`. **Do not regress it.**
 
 ## Acer Chromebox CXI3 (`hamfield-signage-1`)
 
-**Preflight and first install 2026-09-13.** Compositing is confirmed
-accelerated on the device; **hardware video decode is not yet proven** — the
-driver offers it, Chromium has not been shown to use it, and no soak has run.
+**Validated 2026-09-13: hardware compositing works, hardware decode is not
+available on this Chromium build.** No soak has run.
 
 | Field                | Value                                                             |
 | -------------------- | ----------------------------------------------------------------- |
@@ -97,8 +96,8 @@ driver offers it, Chromium has not been shown to use it, and no soak has run.
   `non-free` component is needed; the `-non-free` variant only adds codecs that
   are not relevant to H.264 decode. `i965-va-driver` is the fallback if iHD
   misbehaves on this generation.
-- **`auto` resolves to `gles` — confirmed on the device.** `player-logs`
-  reports `kiosk: GPU mode=gles (hardware vulkan driver: intelopen-sourcemesadriver)`.
+- **`auto` resolves to `angle` — confirmed on the device.** `player-logs`
+  reports the mode with `hardware vulkan driver: intelopen-sourcemesadriver`.
   Mesa reports its Vulkan driver as "Intel open-source Mesa driver" rather than
   the bare `anv` string, which the `*intel*` arm of the map catches. Before the
   T016 mapping fix this unit would have landed on `software`.
@@ -113,9 +112,51 @@ driver offers it, Chromium has not been shown to use it, and no soak has run.
   constraint to watch during the soak, and `--disable-dev-shm-usage` is the
   documented mitigation if renderer OOM crashes appear in `player-logs`.
 
-**Hardware decode is not optional on this unit.** Software-decoding 1080p on two
-1.8 GHz cores leaves almost no headroom for compositing — this is the model that
-most needs VA-API working, and the one where it is easiest to measure.
+### Measured results (Chromium 152.0.7977.82, 1080p30 H.264)
+
+| Configuration                    | GPU render (RCS) | GPU video (VCS) | CPU idle (2 cores) |
+| -------------------------------- | ---------------- | --------------- | ------------------ |
+| `--use-angle=gles` (initial)     | 0.00%            | 0.00%           | ~30%               |
+| `--use-angle=gl` (**validated**) | ~17%             | 0.00%           | **~57%**           |
+
+**Validated configuration:** `SIGNAGE_KIOSK_GPU=auto` (resolves to `angle`),
+`SIGNAGE_CHROMIUM_EXTRA_FLAGS` unset. Nothing else is needed — the fix is in
+`start-player.sh`, not in per-device config.
+
+Hardware compositing roughly halved CPU load and visibly smoothed playback.
+`--use-angle=gles` was worse than doing nothing at all: Chromium rejected it and
+set `--use-gl=disabled` internally, so the GPU sat in RC6 at 100% while the GPU
+process software-composited on the CPU.
+
+### Hardware video decode: NOT AVAILABLE — validated negative
+
+The GPU can do it and the driver exposes it (iHD reports H.264 High/Main/CB with
+`VAEntrypointVLD`), but **Debian 13's Chromium 152 is compiled without VA-API**:
+
+```bash
+strings -a /usr/lib/chromium/chromium | grep -ci vaapi   # → 0
+```
+
+Confirmed from two directions: the binary contains no VA-API symbols at all, and
+`--enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL` with `--v=1`
+logging produced no VA-API log lines whatsoever. `iHD_drv_video.so` does get
+mapped into the GPU process, but that is libva arriving through the media stack,
+not Chromium's decoder — it is misleading evidence and cost time here.
+
+**No Chromium flag can fix this.** The options, none of them taken yet, are a
+Chromium build with `use_vaapi=true`, or accepting software decode.
+
+**Software decode is survivable on this unit**, which is why it is not a
+blocker: with hardware compositing the box still idles ~57% at 1080p30. Before
+the compositing fix the two problems together left only ~30% idle, which would
+not have been.
+
+### Open
+
+- **Tearing.** Reduced but still visible as occasional horizontal lag. Not a
+  Chromium flag — the fix is `Option "TearFree" "true"` on the Intel X driver.
+  Untested.
+- **72-hour soak.** Not run. 3.7 GB RAM is the number to watch.
 
 ## Chromebox — second unit
 
