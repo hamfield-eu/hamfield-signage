@@ -1,5 +1,5 @@
 import { mkdir, rm, statfs } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { Logger } from 'pino';
 import { diffManifest, bytesToDownload, type SyncManifest } from '@signage/sync-protocol';
 import type { ApiClient } from './api-client';
@@ -110,15 +110,31 @@ export class SyncEngine {
   }
 
   private async diskSpace(): Promise<{ available: number; total: number } | null> {
-    try {
-      const fs = await statfs(this.config.mediaDir);
-      const space = { available: fs.bavail * fs.bsize, total: fs.blocks * fs.bsize };
-      this.lastDiskTotalBytes = space.total;
-      return space;
-    } catch {
-      // statfs can fail on exotic filesystems. Without numbers there is nothing
-      // to decide on, so the sync proceeds exactly as it did before T017.
-      return null;
+    // Walk up to the nearest directory that exists.
+    //
+    // On a device's FIRST sync the media directory has not been created yet —
+    // `mkdir` happens further down, inside the download step — so statfs threw
+    // ENOENT, this returned null, and the precheck was skipped entirely. That
+    // is exactly the sync that most needs checking: an empty cache downloading
+    // a whole playlist onto a small eMMC.
+    //
+    // The parent is on the filesystem the media directory will be created on,
+    // so it measures the right thing. (If the media directory were itself a
+    // mount point, it would exist and the first attempt would succeed.)
+    let dir = this.config.mediaDir;
+    for (;;) {
+      try {
+        const fs = await statfs(dir);
+        const space = { available: fs.bavail * fs.bsize, total: fs.blocks * fs.bsize };
+        this.lastDiskTotalBytes = space.total;
+        return space;
+      } catch {
+        const parent = dirname(dir);
+        // statfs can also fail on exotic filesystems. Without numbers there is
+        // nothing to decide on, so the sync proceeds as it did before T017.
+        if (parent === dir) return null;
+        dir = parent;
+      }
     }
   }
 

@@ -266,6 +266,28 @@ describe('SyncEngine', () => {
       const path = db.getCachedMedia('img-1')!.filePath;
       writeFileSync(path, Buffer.alloc(imgContent.length, 0x41));
 
+      // Age the verification stamp past the rehash interval. Without this the
+      // file is not due: the sync that just ran ended in a maintenance pass
+      // that hashed and stamped it, and re-hashing is deliberately bounded to
+      // roughly weekly per file so it does not saturate eMMC read bandwidth.
+      // Skipping a file verified seconds ago is correct behaviour, so the test
+      // has to simulate the passage of time rather than assert it away.
+      db.markVerified(['img-1'], new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString());
+
+      await engine.maintainCache('test');
+
+      expect(readFileSync(path)).toEqual(imgContent);
+    });
+
+    it('re-hashes a file immediately when the player reports an error on it', async () => {
+      // The out-of-rotation path: a playback error is the cheapest corruption
+      // signal there is, so that file jumps the weekly queue instead of
+      // waiting up to a week behind a stamp that was set moments ago.
+      await engine.syncNow('initial');
+      const path = db.getCachedMedia('img-1')!.filePath;
+      writeFileSync(path, Buffer.alloc(imgContent.length, 0x41));
+
+      engine.noteSuspectMedia('img-1');
       await engine.maintainCache('test');
 
       expect(readFileSync(path)).toEqual(imgContent);

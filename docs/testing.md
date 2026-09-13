@@ -32,21 +32,35 @@ Packages with no tests yet run `vitest run --passWithNoTests`, which reports an
 empty suite rather than printing "no tests" and exiting 0. The difference
 matters: the second form is indistinguishable from a suite that passed.
 
-### Known failure in this environment
+### Use Node 22, not Node 24
 
 `apps/agent`'s SQLite-backed tests fail on **Node 24** with a missing
-`better_sqlite3.node`. `better-sqlite3@11.10.0` has no prebuilt binding for that
-ABI, so the install falls back to compiling from source, which needs `make` and
-a C++ toolchain — absent here, so the binding is simply never produced.
+`better_sqlite3.node`. `better-sqlite3@11.10.0` publishes no prebuilt binding
+for that ABI, so the install falls back to compiling from source, which needs
+`make` and a C++ toolchain.
 
-This is not caused by any application change: four of these tests failed this
-way before the cache work landed, and the other thirteen are the cases that work
-added. Nothing about the agent's own logic is implicated.
+**Node 22 has a prebuild and the tests pass** — verified, not assumed. This is
+what CI pins. If you are on Node 24:
 
-CI pins Node 22 for this reason. That the tests pass there is **unverified** —
-no Node 22 is installed on this machine, so the fix is reasoned from the missing
-ABI, not observed. If Node 22 also lacks a prebuild, the alternative is
-installing build-essential on the runner or upgrading `better-sqlite3`.
+```bash
+nvm use 22
+pnpm rebuild better-sqlite3
+```
+
+`pnpm test` must be run on the same major version the binding was built for;
+switching Node versions without rebuilding reproduces the same error.
+
+### `pnpm build` before `pnpm typecheck`
+
+Workspace packages are consumed through `main`/`types` pointing at `dist/`, so
+on a **fresh checkout** neither `tsc` nor the unit tests can resolve
+`@signage/shared` until it has been built. It works on a developer's machine
+only because `dist/` is left over from an earlier build — which is exactly how
+this reached CI unnoticed. The unit job runs `pnpm build` for that reason.
+
+The integration suite is the exception: its Vitest config aliases the workspace
+packages to their TypeScript sources, so it runs with no `dist/` at all
+(verified by deleting every `dist/` and running it).
 
 ## The integration suite — `apps/api`
 

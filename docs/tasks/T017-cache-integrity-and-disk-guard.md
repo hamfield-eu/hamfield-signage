@@ -1,12 +1,12 @@
 # T017 — Device cache integrity and disk guard
 
-|                |                                                                                                                                                                                                                                                                                                      |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Estimate**   | M                                                                                                                                                                                                                                                                                                    |
-| **Risk**       | Medium — touches the sync engine, which is the code path that must never break playback. LRU eviction deletes files on customer devices                                                                                                                                                              |
-| **Depends on** | None technically. Coordinate with **T015** (the watchdog must not reboot a device whose real problem is a full disk)                                                                                                                                                                                 |
-| **Blocks**     | Production use of any device with small internal storage — i.e. most x86 thin clients (**T016**)                                                                                                                                                                                                     |
-| **Status**     | **Implemented 2026-09-10.** Integrity + repair, the storage precheck and the `insufficient_storage` status, orphan/`.part` sweep, opt-in LRU eviction, metrics and the dead-constant cleanup. Not deployed, and `sync.test.ts` could not be executed in this environment — see "Outcome" at the end. |
+|                |                                                                                                                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Estimate**   | M                                                                                                                                                                                                                               |
+| **Risk**       | Medium — touches the sync engine, which is the code path that must never break playback. LRU eviction deletes files on customer devices                                                                                         |
+| **Depends on** | None technically. Coordinate with **T015** (the watchdog must not reboot a device whose real problem is a full disk)                                                                                                            |
+| **Blocks**     | Production use of any device with small internal storage — i.e. most x86 thin clients (**T016**)                                                                                                                                |
+| **Status**     | **Implemented 2026-09-10; tests executed 2026-09-13 and they found a real bug** — the storage precheck did nothing on a device's first sync. Fixed; all 87 agent tests pass on Node 22. Not deployed. See "Outcome" at the end. |
 
 > Self-contained by design: a fresh Claude Code session has no memory of the
 > review that produced this file.
@@ -527,12 +527,32 @@ the existing stub backend rather than through the pure helpers.
 
 ### Not verified — read this before trusting any of it
 
-- **`sync.test.ts` cannot execute in this environment.** `better-sqlite3` has no
-  compiled binding for Node 24 and `node-gyp` cannot build one because `make` is
-  absent. Its four pre-existing tests already failed here on a clean `HEAD` for
-  the same reason; the 16 new ones are **written and typechecked but never
-  run**. `pnpm rebuild better-sqlite3` after installing a C toolchain is all it
-  should need.
+- ~~**`sync.test.ts` cannot execute in this environment.**~~ **Resolved
+  2026-09-13, and it found a real bug.** The blocker was Node 24, which
+  `better-sqlite3@11.10.0` has no prebuild for; Node 22 does, so the suite runs.
+  All 87 agent tests now pass — but four failed first, and three of them were
+  the code's fault, not the tests':
+
+  **The storage precheck did nothing on a device's very first sync.**
+  `diskSpace()` called `statfs(mediaDir)`, and `mediaDir` is created further
+  down, inside the download step. On a fresh device the directory did not exist
+  yet, statfs threw `ENOENT`, the error was swallowed, and `checkStorage`
+  returned "fine" without checking anything. That is precisely the sync that
+  most needs the guard: an empty cache pulling a whole playlist onto a small
+  eMMC — the Chromebox case this task exists to protect. Fixed by walking up to
+  the nearest existing directory, which is on the filesystem the media directory
+  will be created on.
+
+  The fourth failure was the test's fault: it corrupted a file and expected the
+  hashing tier to catch it immediately, but the sync it had just run ended in a
+  maintenance pass that hashed and stamped that file, and re-hashing is
+  deliberately bounded to roughly weekly. The test now ages the stamp, and a
+  second test covers the out-of-rotation path a playback error triggers.
+
+  This is the clearest possible argument for the environment note above: the
+  tests were written, typechecked and believed correct for three days while a
+  headline feature was silently inert.
+
 - **Nothing has run on a device.** The two acceptance tests the task calls out —
   `fallocate` the disk to 99% and confirm `insufficient_storage`; `truncate -s 0`
   a cached file and confirm automatic repair — are exactly the ones that need

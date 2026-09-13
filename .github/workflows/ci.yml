@@ -25,19 +25,26 @@ jobs:
     name: Typecheck and unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
         with:
           version: 9.15.4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # First, because it is the fastest way to fail and the cheapest to fix,
+      # and it needs nothing built.
+      - run: pnpm format:check
       # The API and web typechecks need the generated Prisma client.
       - run: pnpm db:generate
-      # First, because it is the fastest way to fail and the cheapest to fix.
-      - run: pnpm format:check
+      # Required, not optional. The workspace packages are consumed through
+      # `main`/`types` pointing at `dist/`, which a fresh checkout does not
+      # have — without this, tsc cannot resolve `@signage/shared` at all and
+      # the unit tests cannot import it either. It passes locally only because
+      # a developer's dist/ is left over from an earlier build.
+      - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm test
 
@@ -48,11 +55,11 @@ jobs:
     name: API integration tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
         with:
           version: 9.15.4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm

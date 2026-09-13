@@ -40,13 +40,16 @@ no memory of the review. Same convention as `docs/todo-encoding-settings.md`.
 > **T017 status:** implemented 2026-09-10 — cache integrity with automatic
 > repair, a free-space/budget precheck that refuses to start a sync it cannot
 > finish, and a distinct `insufficient_storage` device status, plus an orphan
-> sweep, opt-in LRU eviction and the dead-constant cleanup. 28 new tests run
-> today; the 16 end-to-end cases added to `sync.test.ts` are typechecked but
-> **cannot execute here** — `better-sqlite3` has no binding for Node 24 and
-> `make` is missing, which also fails the four pre-existing tests on a clean
-> `HEAD`. Nothing deployed. Note the task plan's repair path did not work as
-> written: the sync's version-unchanged shortcut returns before the diff runs,
-> so repair needed a forced sync. See "Outcome" in
+> sweep, opt-in LRU eviction and the dead-constant cleanup. **All 87 agent tests
+> now run and pass on Node 22** (2026-09-13) — they were blocked on Node 24,
+> which `better-sqlite3` has no prebuild for. Running them found a real bug:
+> the storage precheck did nothing on a device's **first** sync, because
+> `statfs` was called on a media directory that does not exist yet and the
+> `ENOENT` was swallowed. That is the exact case the guard exists for — an empty
+> cache filling a small eMMC. Fixed. Nothing deployed. Note also that the task
+> plan's repair path did not work as written: the sync's version-unchanged
+> shortcut returns before the diff runs, so repair needed a forced sync. See
+> "Outcome" in
 > [T017](T017-cache-integrity-and-disk-guard.md).
 >
 > **T015 status:** stages 1–2 are done (2026-09-10) — F1 is fixed in the repo:
