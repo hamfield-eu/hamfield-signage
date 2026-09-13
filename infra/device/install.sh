@@ -44,8 +44,18 @@ log() { echo "==> $*"; }
 build_release() {
   local out_dir="$1"
 
-  if ! command -v node > /dev/null 2>&1 || [ "$(node -e 'console.log(process.versions.node.split(".")[0])')" -lt 20 ]; then
-    log "Installing Node.js 22 (NodeSource)"
+  # The agent depends on better-sqlite3, which is a native module and only
+  # ships prebuilt bindings for a range of Node ABIs. Too NEW is as broken as
+  # too old: on Node 24 there is no prebuild, so the install falls back to
+  # compiling from source and fails on any device without a C++ toolchain —
+  # leaving an agent that cannot open its own database. So pin the supported
+  # window rather than only enforcing a floor.
+  NODE_MAJOR=0
+  if command -v node > /dev/null 2>&1; then
+    NODE_MAJOR="$(node -e 'console.log(process.versions.node.split(".")[0])' 2> /dev/null || echo 0)"
+  fi
+  if [ "$NODE_MAJOR" -lt 20 ] || [ "$NODE_MAJOR" -gt 22 ]; then
+    log "Installing Node.js 22 (NodeSource) — found major version ${NODE_MAJOR:-none}"
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
     apt-get install -y nodejs
   fi
@@ -161,11 +171,43 @@ apt-get install -y curl ca-certificates
 
 if [ "$INSTALL_PLAYER" -eq 1 ]; then
   log "Installing kiosk packages (X server, scrot, Vulkan)"
-  # mesa-vulkan-drivers provides the Vulkan ICD (V3DV on Raspberry Pi); vulkan-tools
-  # provides vulkaninfo, which start-player.sh uses to detect a usable GPU. Both are
-  # best-effort: on boards without a Vulkan driver the kiosk falls back to software.
+  # mesa-vulkan-drivers provides the Vulkan ICD (V3DV on Raspberry Pi, ANV on
+  # Intel); vulkan-tools provides vulkaninfo, which start-player.sh uses to
+  # detect a usable GPU. Both are best-effort: on boards without a Vulkan driver
+  # the kiosk falls back to software.
   apt-get install -y xserver-xorg xinit x11-xserver-utils scrot file \
     mesa-vulkan-drivers vulkan-tools || true
+
+  # Hardware video decode on Intel. Only meaningful on x86 — the ARM boards have
+  # no VA-API driver to install — so it is gated on the architecture rather than
+  # pulling Intel packages onto every Raspberry Pi.
+  #
+  # `intel-media-va-driver` is the iHD driver and is in Debian main, so this
+  # needs no `non-free` component. It covers Gen8 onwards, which includes every
+  # Chromebox-class part worth deploying. `i965-va-driver` is the fallback for
+  # pre-Gen8 hardware; installing both is harmless because libva picks per
+  # device. `vainfo` is the diagnostic that decides whether decode is possible
+  # at all, so it is not optional.
+  #
+  # Validated on an Acer Chromebox CXI3 (Kaby Lake GT1, [8086:5906]): iHD
+  # 25.2.3 reports VAProfileH264High/Main/ConstrainedBaseline with
+  # VAEntrypointVLD. See docs/hardware-matrix.md.
+  if [ "$(uname -m)" = "x86_64" ]; then
+    log "Installing VA-API packages for Intel hardware video decode"
+    apt-get install -y vainfo intel-media-va-driver i965-va-driver || true
+    if command -v vainfo > /dev/null 2>&1; then
+      if vainfo 2>&1 | grep -qE 'VAProfileH264.*VAEntrypointVLD'; then
+        log "VA-API: hardware H.264 decode is available"
+      else
+        # Not fatal: the kiosk still plays, in software. But it is the single
+        # thing most worth knowing about an x86 device, so say it loudly rather
+        # than leaving the operator to wonder why a Celeron is at 100%.
+        log "VA-API: WARNING - no H.264 decode entrypoint. Playback will be software-decoded."
+        log "VA-API: run 'vainfo' to see what the driver reports."
+      fi
+    fi
+  fi
+
   install_chromium
 fi
 

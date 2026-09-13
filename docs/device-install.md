@@ -75,9 +75,38 @@ backend per board (override with `SIGNAGE_KIOSK_GPU`):
 - **Raspberry Pi 4/5** — auto-detected (via `vulkaninfo`, driver `V3DV`) and run
   with **ANGLE-on-Vulkan**, which composites through the V3D GPU and eliminates
   the screen tearing that software compositing produces.
+- **Intel x86 thin clients (Chromebox and similar)** — auto-detected via the
+  `anv` Vulkan driver and run with **ANGLE-on-GLES**, the conservative
+  accelerated path. AMD (`radv`) maps the same way but is **unvalidated** — no
+  AMD unit has been tested.
 - **ODROID C4 (Mali) and any board without a usable hardware Vulkan driver** —
   fall back to Chromium's **software** compositing. It always renders and never
   crash-loops the GPU process; expect tearing and no hardware video decode.
+
+A device that lands on `software` because its driver is not in the map now says
+so by name in `signage player-logs`, along with the override command — so
+unrecognised hardware is discoverable instead of just being slow.
+
+### Hardware video decode (x86 only)
+
+On `x86_64`, the installer also adds `vainfo`, `intel-media-va-driver` (iHD) and
+`i965-va-driver`, then reports whether an H.264 decode entrypoint exists. This
+matters more than compositing on a low-power thin client: software-decoding
+1080p on two 1.8 GHz cores leaves almost nothing for the rest of the system.
+
+Check it at any time with:
+
+```bash
+vainfo | grep VAProfileH264
+```
+
+`VAEntrypointVLD` on an H.264 profile means decode is available **to the
+driver**. Chromium still has to be told to use it — see
+[hardware-matrix.md](hardware-matrix.md) for the validated flag set per model,
+and note that VA-API flag names change between Chromium major versions, so a
+flag set is only trustworthy for the version it was tested against.
+
+ARM boards install none of this: there is no VA-API driver to install for them.
 
 `auto` only enables Vulkan when a hardware (non-`lavapipe`) Vulkan driver is
 present, so a misdetect can't strand a screen. To experiment on other hardware,
