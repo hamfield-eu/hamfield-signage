@@ -244,3 +244,89 @@ The driver that does implement it, `xf86-video-intel`, is deprecated by Intel
 for Gen9 and newer and is not a good bet on an unattended screen. If you try it
 anyway, verify with `grep -i tearfree /var/log/Xorg.0.log` — a config file that
 Xorg ignores looks identical to one that works.
+
+## Wi-Fi
+
+Ethernet is preferable and often impossible: screens get mounted where there is
+power and a wall, not where there is a network drop. Treat Wi-Fi as the normal
+case for x86 thin clients.
+
+The agent tolerates a flaky link better than most things on a screen would: it
+is **outbound-only** (no inbound ports, works behind NAT and on guest networks)
+and **offline-first**, so a dropped link delays sync rather than blanking the
+screen. What it does not tolerate well is a _first_ sync over a marginal link —
+that is when the whole playlist transfers.
+
+### Hardware
+
+| Platform            | Chip                       | Driver             | Assessment                                                       |
+| ------------------- | -------------------------- | ------------------ | ---------------------------------------------------------------- |
+| Acer Chromebox CXI3 | Intel Wireless 7265 (095a) | `iwlwifi`/`mvm`    | In-tree, first-party, dual-band 802.11ac 2x2. Best of the three. |
+| Raspberry Pi 4/5    | Broadcom                   | `brcmfmac`         | In-tree; generally dependable.                                   |
+| ODROID-C4           | usually Realtek USB/SDIO   | vendor/out-of-tree | Source of "works on this network, not that one" reports.         |
+
+If a board misbehaves on some networks and not others, suspect the driver before
+the access point — WPA3/PMF negotiation and power-save quirks are where
+out-of-tree drivers fail first.
+
+### Setup (NetworkManager)
+
+```bash
+sudo nmcli device wifi list
+sudo nmcli device wifi connect "<SSID>" password "<PASSWORD>"
+
+# Survive reboots AND an access point that reboots overnight. The default
+# retry count gives up after a few failures, which leaves a screen offline
+# until someone physically visits it. 0 means retry forever.
+sudo nmcli connection modify "<SSID>" connection.autoconnect yes \
+                                     connection.autoconnect-retries 0
+```
+
+### Disable Wi-Fi power saving — the one that matters
+
+`iwlwifi` power-saves aggressively by default. On an always-on screen this shows
+up as latency spikes, slow or stalling syncs, and links that look like
+disconnects. It is easy to misread as an access-point problem.
+
+```bash
+sudo tee /etc/NetworkManager/conf.d/wifi-powersave-off.conf >/dev/null <<'CONF'
+[connection]
+wifi.powersave = 2
+CONF
+sudo systemctl restart NetworkManager
+```
+
+`2` means disabled (`3` is enabled — the default).
+
+Without NetworkManager, do the same with a systemd unit running
+`iw dev wlan0 set power_save off` after the interface appears, or a udev rule.
+
+### Verify the outcome, not the request
+
+```bash
+iw dev wlan0 get power_save     # want: "Power save: off"
+iw dev wlan0 link               # signal (dBm), bitrate, SSID
+nmcli -f NAME,AUTOCONNECT,AUTOCONNECT-RETRIES connection show
+```
+
+Signal is measured **at the screen's mounted position**, not where the installer
+is standing. Better than −65 dBm is comfortable; worse than −75 dBm is where a
+2x2 ac link starts costing real throughput, and the first full sync is when that
+hurts.
+
+### Troubleshooting
+
+| Symptom                                   | Check                                                                                          |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Syncs stall or crawl, playback fine       | `iw dev wlan0 get power_save` — powersave on is the usual cause                                |
+| Offline after an overnight AP reboot      | `connection.autoconnect-retries` — the default gives up                                        |
+| Connects at the desk, not at the mount    | `iw dev wlan0 link` at the mount; below −75 dBm, move the screen or add an AP                  |
+| Works on one network, not another         | WPA3/PMF or band steering; try `wpa-pmf optional`, or pin the band with `802-11-wireless.band` |
+| Device online, dashboard shows it offline | Outbound HTTPS/WSS blocked by the site firewall; `curl -fsS $SIGNAGE_SERVER_URL/health`        |
+
+### Not yet validated
+
+No signage device has been soaked on Wi-Fi. The 7265 assessment above is from
+the driver and chip, not from a 72-hour run on a customer network. When the
+first one is done, record the result here: signal at the mount, whether the link
+survived AP reboots, and whether any sync failed.

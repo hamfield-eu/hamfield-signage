@@ -70,24 +70,26 @@ arm of the driver `case` in `start-player.sh`. **Do not regress it.**
 **Validated 2026-09-13: hardware compositing works, hardware decode is not
 available on this Chromium build.** No soak has run.
 
-| Field                | Value                                                             |
-| -------------------- | ----------------------------------------------------------------- |
-| DMI vendor / product | `Google` / `Sion` (version `1.0`)                                 |
-| Firmware             | `coreboot MrChromebox-2606.1` — already reflashed                 |
-| Arch / kernel        | `x86_64` / `6.12.107+deb13-amd64`                                 |
-| OS                   | Debian GNU/Linux 13 (trixie)                                      |
-| CPU                  | Intel Celeron 3867U @ 1.80 GHz, **2 cores** (Kaby Lake)           |
-| RAM                  | **3.7 GB**                                                        |
-| Storage              | 29.8 GB total; `/` is 27.3 GB with 21 GB free                     |
-| GPU                  | Intel HD Graphics 610 `[8086:5906]` rev 07 (Gen9.5, GT1)          |
-| DRM driver           | `i915`, render node `/dev/dri/renderD128` present                 |
-| Display              | HDMI-A-1 at 1920x1080                                             |
-| Vulkan driver        | `Intel open-source Mesa driver` (ANV) — **confirmed on device**   |
-| VA-API driver        | iHD 25.2.3 (`intel-media-va-driver`), VA-API 1.22 — **installed** |
-| H.264 decode         | Available to the driver: High/Main/ConstrainedBaseline + VLD      |
-| Chromium             | 152.0.7977.82 (Debian trixie)                                     |
-| Validated flags      | none — `SIGNAGE_CHROMIUM_EXTRA_FLAGS` unset                       |
-| Soak                 | not run                                                           |
+| Field                | Value                                                                                  |
+| -------------------- | -------------------------------------------------------------------------------------- |
+| DMI vendor / product | `Google` / `Sion` (version `1.0`)                                                      |
+| Firmware             | `coreboot MrChromebox-2606.1` — already reflashed                                      |
+| Arch / kernel        | `x86_64` / `6.12.107+deb13-amd64`                                                      |
+| OS                   | Debian GNU/Linux 13 (trixie)                                                           |
+| CPU                  | Intel Celeron 3867U @ 1.80 GHz, **2 cores** (Kaby Lake)                                |
+| RAM                  | **3.7 GB**                                                                             |
+| Storage              | 29.8 GB total; `/` is 27.3 GB with 21 GB free                                          |
+| GPU                  | Intel HD Graphics 610 `[8086:5906]` rev 07 (Gen9.5, GT1)                               |
+| DRM driver           | `i915`, render node `/dev/dri/renderD128` present                                      |
+| Display              | HDMI-A-1 at 1920x1080                                                                  |
+| Wireless             | Intel Wireless 7265 `[8086:095a]`, `iwlwifi`/`iwlmvm` — **untested on a real network** |
+| Ethernet             | Realtek `r8169` (used for the bring-up session)                                        |
+| Vulkan driver        | `Intel open-source Mesa driver` (ANV) — **confirmed on device**                        |
+| VA-API driver        | iHD 25.2.3 (`intel-media-va-driver`), VA-API 1.22 — **installed**                      |
+| H.264 decode         | Available to the driver: High/Main/ConstrainedBaseline + VLD                           |
+| Chromium             | 152.0.7977.82 (Debian trixie)                                                          |
+| Validated flags      | none — `SIGNAGE_CHROMIUM_EXTRA_FLAGS` unset                                            |
+| Soak                 | not run                                                                                |
 
 ### What the numbers decide
 
@@ -163,6 +165,15 @@ used`. The driver that does implement it (`xf86-video-intel`) is deprecated by
   software decode missing an occasional deadline on a 1.8 GHz core, would both
   look similar and neither is fixable in X.
 - **72-hour soak.** Not run. 3.7 GB RAM is the number to watch.
+- **Wi-Fi.** This unit deploys to a site where Ethernet cannot reach the screen,
+  so Wi-Fi is the production configuration and the soak must run on it — testing
+  on Ethernet would validate something that will never ship. The 7265 is
+  in-tree Intel hardware and should behave far better than the ODROID's
+  out-of-tree parts, but that is an expectation, not a measurement. Disable
+  `iwlwifi` power saving first; see the Wi-Fi section of
+  [device-install.md](device-install.md). Record signal strength **at the mount
+  position**, whether the link survives an AP reboot, and whether any sync
+  failed.
 
 ## Chromebox — second unit
 
