@@ -8,14 +8,14 @@ test) has NOT been performed** - see "What is still missing" below.
 
 ## What runs
 
-| | |
-|---|---|
-| Schedule | `hamfield-backup.timer`, `OnCalendar=*-*-* 03:30:00` UTC, `Persistent=true` |
-| Runs | `infra/backup/backup.sh` as root, from the compose project directory |
-| Destination | `r2backup:hamfield-signage-backup/backups/` (a **dedicated** R2 bucket) |
-| Encryption | `age`, to the public key in `/root/.backup-secrets/age.pub` |
-| Audit trail | `journalctl -u hamfield-backup` |
-| Failure alert | `OnFailure=hamfield-backup-failure@.service` |
+|               |                                                                             |
+| ------------- | --------------------------------------------------------------------------- |
+| Schedule      | `hamfield-backup.timer`, `OnCalendar=*-*-* 03:30:00` UTC, `Persistent=true` |
+| Runs          | `infra/backup/backup.sh` as root, from the compose project directory        |
+| Destination   | `r2backup:hamfield-signage-backup/backups/` (a **dedicated** R2 bucket)     |
+| Encryption    | `age`, to the public key in `/root/.backup-secrets/age.pub`                 |
+| Audit trail   | `journalctl -u hamfield-backup`                                             |
+| Failure alert | `OnFailure=hamfield-backup-failure@.service`                                |
 
 Each run takes roughly 16 seconds and produces a ~5.8 MB bundle.
 
@@ -36,13 +36,13 @@ Each run takes roughly 16 seconds and produces a ~5.8 MB bundle.
 
 ## What is NOT backed up, and what that costs
 
-| Not backed up | Why | What it costs you |
-|---|---|---|
-| **Media objects** (images, video) | Cloudflare R2, model A - durability is Cloudflare's problem | Nothing under normal failure. But an *accidental deletion* or a compromise of the media credential is NOT covered by anything here. |
-| **Redis** | Queue state is rebuildable | In-flight transcodes are lost. Recover by re-running `apps/api/src/cli/reprocess-media.ts`. |
-| **Docker images** | Rebuild from the pinned git SHA in the manifest | A restore requires a rebuild, adding minutes to recovery. |
-| **`caddy-data`** (TLS certs) | Let's Encrypt re-issues | Nothing, unless you restore repeatedly and hit LE rate limits. |
-| **The `postgres-data` volume itself** | The logical dump supersedes it | Nothing - the dump is the better artefact. |
+| Not backed up                         | Why                                                         | What it costs you                                                                                                                   |
+| ------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **Media objects** (images, video)     | Cloudflare R2, model A - durability is Cloudflare's problem | Nothing under normal failure. But an _accidental deletion_ or a compromise of the media credential is NOT covered by anything here. |
+| **Redis**                             | Queue state is rebuildable                                  | In-flight transcodes are lost. Recover by re-running `apps/api/src/cli/reprocess-media.ts`.                                         |
+| **Docker images**                     | Rebuild from the pinned git SHA in the manifest             | A restore requires a rebuild, adding minutes to recovery.                                                                           |
+| **`caddy-data`** (TLS certs)          | Let's Encrypt re-issues                                     | Nothing, unless you restore repeatedly and hit LE rate limits.                                                                      |
+| **The `postgres-data` volume itself** | The logical dump supersedes it                              | Nothing - the dump is the better artefact.                                                                                          |
 
 **Point-in-time recovery is explicitly out of scope.** Nightly logical dumps are
 the right complexity for a single-VPS deployment. The cost is the RPO below.
@@ -64,14 +64,14 @@ read them back, so compromising the server does not expose the backup history.
 
 The consequence is a hard split in what can be verified where:
 
-| Check | Where it runs |
-|---|---|
-| dump size floor, `pg_restore --list` | **unattended**, on the server |
-| real `pg_restore` into a throwaway container | **unattended**, on the server |
-| row counts, `_prisma_migrations` head, dump SHA-256 | **unattended**, on the server |
+| Check                                                     | Where it runs                                    |
+| --------------------------------------------------------- | ------------------------------------------------ |
+| dump size floor, `pg_restore --list`                      | **unattended**, on the server                    |
+| real `pg_restore` into a throwaway container              | **unattended**, on the server                    |
+| row counts, `_prisma_migrations` head, dump SHA-256       | **unattended**, on the server                    |
 | that a **stored, encrypted** object decrypts and restores | **manual, on a machine holding the private key** |
 
-The unattended checks run against the bundle *before* encryption. That proves
+The unattended checks run against the bundle _before_ encryption. That proves
 the dump is good; it does not prove the ciphertext in R2 is retrievable and
 decryptable. Only the manual check does, and only you can run it:
 
@@ -103,11 +103,11 @@ does not recognise, are **kept and flagged** - never deleted.
 
 `/root/.backup-secrets/` (mode 700, files 600):
 
-| File | Contents |
-|---|---|
+| File                     | Contents                                       |
+| ------------------------ | ---------------------------------------------- |
 | `r2.access`, `r2.secret` | R2 API token, scoped to the backup bucket ONLY |
-| `r2.endpoint` | R2 S3 endpoint |
-| `age.pub` | age **public** key (safe to hold here) |
+| `r2.endpoint`            | R2 S3 endpoint                                 |
+| `age.pub`                | age **public** key (safe to hold here)         |
 
 There is no `rclone.conf`: the remote is defined through `RCLONE_CONFIG_*`
 environment variables set from these files at call time, so the credentials

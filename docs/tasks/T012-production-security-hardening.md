@@ -1,12 +1,12 @@
 # T012 — Production security hardening
 
-| | |
-|---|---|
-| **Estimate** | M |
-| **Risk** | Medium — touches auth middleware and proxy config; a mistake can lock out the dashboard or break device connections |
-| **Depends on** | T010 (needs the production topology to harden) |
-| **Blocks** | External/customer use |
-| **Status** | S2, S4, S5, S6, S8, S10 done. S9 partly done (non-root yes, image pruning deferred). Firewall + verification are operator tasks, not done. Nothing deployed yet. |
+|                |                                                                                                                                                                  |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Estimate**   | M                                                                                                                                                                |
+| **Risk**       | Medium — touches auth middleware and proxy config; a mistake can lock out the dashboard or break device connections                                              |
+| **Depends on** | T010 (needs the production topology to harden)                                                                                                                   |
+| **Blocks**     | External/customer use                                                                                                                                            |
+| **Status**     | S2, S4, S5, S6, S8, S10 done. S9 partly done (non-root yes, image pruning deferred). Firewall + verification are operator tasks, not done. Nothing deployed yet. |
 
 > Self-contained by design: a fresh Claude Code session has no memory of the
 > review that produced this file.
@@ -25,17 +25,18 @@ Everything below was found by reading the code. Line references are from commit
 
 ## Context from the review report
 
-### S2 — `trustProxy: true` makes `req.ip` attacker-controlled *(High, LIKELY)*
+### S2 — `trustProxy: true` makes `req.ip` attacker-controlled _(High, LIKELY)_
 
 `apps/api/src/server.ts:51` sets `trustProxy: true`. `@fastify/proxy-addr` with an
 all-trust function walks the `X-Forwarded-For` chain right-to-left and returns
-the first *untrusted* address — with everything trusted, that is the **leftmost**
+the first _untrusted_ address — with everything trusted, that is the **leftmost**
 entry. `infra/docker/web-nginx.conf:15` uses `$proxy_add_x_forwarded_for`, which
 **appends** the real peer to whatever the client sent. So a client sending
 `X-Forwarded-For: 1.2.3.4` produces a chain of `1.2.3.4, <real-ip>` and `req.ip`
 becomes `1.2.3.4`.
 
 Consequences:
+
 - The rate limits on `/auth/login` (10/min, `routes/auth.ts:38`),
   `/auth/change-password` (5/min) and `/device/pair` (10/min,
   `routes/device-api.ts:87`) are all keyed on `req.ip` and become trivially
@@ -46,7 +47,7 @@ Consequences:
 **This finding is marked LIKELY, not CONFIRMED — verify empirically before and
 after the fix** (see the testing checklist).
 
-### S8 — No security headers *(Medium)*
+### S8 — No security headers _(Medium)_
 
 Neither `infra/docker/web-nginx.conf` nor `infra/docker/Caddyfile.example` sets
 HSTS, CSP, `X-Content-Type-Options`, `X-Frame-Options` / `frame-ancestors`, or
@@ -54,7 +55,7 @@ HSTS, CSP, `X-Content-Type-Options`, `X-Frame-Options` / `frame-ancestors`, or
 JWT lives in `localStorage` (`apps/web/src/lib/api.ts:12`), so any XSS is a full
 account takeover with no defence in depth.
 
-### S6 — No global rate limit *(Medium)*
+### S6 — No global rate limit _(Medium)_
 
 `apps/api/src/server.ts:63` registers `@fastify/rate-limit` with `global: false`.
 Only three routes opt in. `/device/heartbeat`, `/device/logs`,
@@ -62,7 +63,7 @@ Only three routes opt in. `/device/heartbeat`, `/device/logs`,
 compromised device token can write unbounded rows into `device_logs` /
 `playback_events`, which compounds the unbounded-growth problem T013 addresses.
 
-### S4 — Org logo upload memory DoS *(Medium, CONFIRMED)*
+### S4 — Org logo upload memory DoS _(Medium, CONFIRMED)_
 
 `apps/api/src/server.ts:67` registers multipart with a global
 `limits: { fileSize: env.MAX_UPLOAD_SIZE_BYTES }` (default **1 GiB**).
@@ -71,13 +72,13 @@ the upload in API memory — and only afterwards calls `validateLogoBuffer`
 (`packages/media/src/logo.ts:81`), which enforces the 2 MB `ORG_LOGO_MAX_BYTES`.
 Any org admin can spike the API process by ~1 GiB.
 
-### S9 — Containers run as root *(Medium)*
+### S9 — Containers run as root _(Medium)_
 
 None of `infra/docker/{api,worker,web}.Dockerfile` sets `USER`. The runtime
 stages also `COPY --from=build /app /app`, shipping source and devDependencies
 into production images.
 
-### S10 — Audit gaps *(Medium-High)*
+### S10 — Audit gaps _(Medium-High)_
 
 `docs/architecture.md` claims "privileged and destructive actions are recorded in
 an append-only `AuditLog`". Grep of `writeAudit` call sites shows coverage in
@@ -85,6 +86,7 @@ an append-only `AuditLog`". Grep of `writeAudit` call sites shows coverage in
 `priority-rules.ts` (4), `media-folders.ts` (1), `auth.ts` (1 — superadmin login).
 
 **Not logged at all:**
+
 - `apps/api/src/routes/emergency.ts` — emergency override **start and stop**.
   This is the single most disruptive action in the product; it blanks a
   customer's screens org-wide.
@@ -93,7 +95,7 @@ an append-only `AuditLog`". Grep of `writeAudit` call sites shows coverage in
   regeneration.
 - `apps/api/src/routes/schedules.ts` — all schedule mutations.
 
-### S5 — JWT is not revocable *(Medium)*
+### S5 — JWT is not revocable _(Medium)_
 
 `apps/api/src/lib/auth.ts` signs a 7-day token carrying only `sub` and `email`.
 No `jti`, no password-version claim. Changing a password
@@ -231,16 +233,16 @@ the user-agent. **Never put tokens, passwords or pairing codes in `metadata`.**
 
 Add:
 
-| Route | Action string | Target | Metadata |
-|---|---|---|---|
-| `emergency.ts` POST `/orgs/:orgId/emergency` | `emergency.start` | `emergency_override` | name, appliesToAll, target device/group counts, playlistId or mediaAssetId |
-| `emergency.ts` POST `.../stop` | `emergency.stop` | `emergency_override` | duration in seconds |
-| `devices.ts` POST `/orgs/:orgId/devices` | `device.create` | `device` | name |
-| `devices.ts` DELETE `.../:deviceId` | `device.delete` | `device` | name, tokens revoked count |
-| `devices.ts` POST `.../revoke-token` | `device.revoke_token` | `device` | revoked count |
-| `devices.ts` POST `.../regenerate-pairing-code` | `device.regenerate_pairing_code` | `device` | — (**never log the code**) |
-| `devices.ts` POST `.../commands` | `device.command` | `device_command` | command type; payload only for non-sensitive types |
-| `schedules.ts` create/update/delete | `schedule.create` / `.update` / `.delete` | `schedule` | name, playlistId, priority |
+| Route                                           | Action string                             | Target               | Metadata                                                                   |
+| ----------------------------------------------- | ----------------------------------------- | -------------------- | -------------------------------------------------------------------------- |
+| `emergency.ts` POST `/orgs/:orgId/emergency`    | `emergency.start`                         | `emergency_override` | name, appliesToAll, target device/group counts, playlistId or mediaAssetId |
+| `emergency.ts` POST `.../stop`                  | `emergency.stop`                          | `emergency_override` | duration in seconds                                                        |
+| `devices.ts` POST `/orgs/:orgId/devices`        | `device.create`                           | `device`             | name                                                                       |
+| `devices.ts` DELETE `.../:deviceId`             | `device.delete`                           | `device`             | name, tokens revoked count                                                 |
+| `devices.ts` POST `.../revoke-token`            | `device.revoke_token`                     | `device`             | revoked count                                                              |
+| `devices.ts` POST `.../regenerate-pairing-code` | `device.regenerate_pairing_code`          | `device`             | — (**never log the code**)                                                 |
+| `devices.ts` POST `.../commands`                | `device.command`                          | `device_command`     | command type; payload only for non-sensitive types                         |
+| `schedules.ts` create/update/delete             | `schedule.create` / `.update` / `.delete` | `schedule`           | name, playlistId, priority                                                 |
 
 The superadmin read endpoint already exists (`GET /superadmin/audit-logs`,
 `routes/superadmin.ts:343`), so no new read surface is required for this task.
@@ -270,11 +272,11 @@ Apply at the **Hetzner Cloud Firewall** level, not only `ufw` — Docker writes
 
 **Inbound (default deny):**
 
-| Port | Proto | Source | Why |
-|---|---|---|---|
-| 22 | TCP | **your admin IP(s) only** | SSH. Do not leave open to `0.0.0.0/0`. |
-| 80 | TCP | `0.0.0.0/0`, `::/0` | ACME HTTP-01 challenge + HTTP→HTTPS redirect |
-| 443 | TCP | `0.0.0.0/0`, `::/0` | Dashboard, API, device WSS |
+| Port | Proto | Source                    | Why                                          |
+| ---- | ----- | ------------------------- | -------------------------------------------- |
+| 22   | TCP   | **your admin IP(s) only** | SSH. Do not leave open to `0.0.0.0/0`.       |
+| 80   | TCP   | `0.0.0.0/0`, `::/0`       | ACME HTTP-01 challenge + HTTP→HTTPS redirect |
+| 443  | TCP   | `0.0.0.0/0`, `::/0`       | Dashboard, API, device WSS                   |
 
 Everything else denied. Explicitly confirm **5432, 6379, 9000, 9001, 4000, 5173**
 are unreachable from outside.
@@ -368,7 +370,7 @@ on sshd if SSH must be open more broadly.
 
 ### S2 — the finding does not reproduce as written
 
-The file marked it *"LIKELY, not CONFIRMED — verify empirically"*. Verified, and
+The file marked it _"LIKELY, not CONFIRMED — verify empirically"_. Verified, and
 it is **not exploitable from the internet**. Measured through a real
 `caddy → nginx → echo` chain:
 
@@ -381,7 +383,7 @@ direct to api     XFF=[1.2.3.4]
 **Caddy replaces an inbound `X-Forwarded-For` with the peer address.** The blind
 append happens at nginx, and Caddy is the only thing preventing it. So login
 throttling was never bypassable from outside and audit IPs were never forgeable
-from outside. Regrade this from *High, live* to *fragile*: it is one topology
+from outside. Regrade this from _High, live_ to _fragile_: it is one topology
 change away — a proxy in front (the Cloudflare orange-cloud option
 `docs/deployment.md` documents), a Caddy `trusted_proxies` setting, or any
 container on the Docker network talking to `api:4000` directly.
@@ -390,13 +392,13 @@ Fixed anyway, and with a **better fix than the plan**. The file suggested
 `trustProxy: 2`. Replicating fastify's `getTrustProxyFn` over
 `@fastify/proxy-addr` against the measured chains, real client `203.0.113.9`:
 
-| setting | via caddy | caddy bypassed | extra hop injected |
-|---|---|---|---|
-| `true` (was) | correct | SPOOFED | SPOOFED |
-| `2` (planned) | correct | SPOOFED | correct |
-| **address list (shipped)** | correct | correct | correct |
+| setting                    | via caddy | caddy bypassed | extra hop injected |
+| -------------------------- | --------- | -------------- | ------------------ |
+| `true` (was)               | correct   | SPOOFED        | SPOOFED            |
+| `2` (planned)              | correct   | SPOOFED        | correct            |
+| **address list (shipped)** | correct   | correct        | correct            |
 
-A hop count trusts *positions*, so shifting the chain shifts which entry is
+A hop count trusts _positions_, so shifting the chain shifts which entry is
 believed. An address list walks left to the first address that is not one of our
 own proxies — always the real peer, whatever the chain length. Shipped as
 `TRUST_PROXY`, default `loopback, uniquelocal`. Verified on 172.x and 10.x.
@@ -462,6 +464,7 @@ root. Track it separately rather than pretending S9 is closed.
   A useful limitation to record for anyone re-verifying: a scan from the admin's
   own network CANNOT confirm that 22 is restricted, because it is the permitted
   source. Testing that property requires a probe from somewhere else.
+
 - **Empirical re-verification against production** after deploy: the spoofed-XFF
   test, `AuditLog.ipAddress` showing real client IPs, a 20-screen site not
   throttling itself, and watching API memory during an oversized logo upload.
@@ -469,8 +472,8 @@ root. Track it separately rather than pretending S9 is closed.
   R2 durability covers hardware failure, not somebody deleting objects.
 
   ⚠ **R2 has no object versioning.** An earlier version of this section told the
-  operator to enable it. That was wrong: `PutBucketVersioning` is listed as *not
-  implemented* in R2's S3 compatibility reference, and there is no dashboard
+  operator to enable it. That was wrong: `PutBucketVersioning` is listed as _not
+  implemented_ in R2's S3 compatibility reference, and there is no dashboard
   toggle, Wrangler command or API for it. R2 objects do carry a `version`
   property, but that is an immutable per-upload identifier, not retained history.
   **There is no undelete on R2.** Verified against the live bucket's Settings page
@@ -482,7 +485,7 @@ root. Track it separately rather than pretending S9 is closed.
   So the real options are:
 
   1. **Bucket Locks** — prevent overwrite/delete for a set duration. The closest
-     thing to the protection wanted. Note it also blocks *legitimate* deletes:
+     thing to the protection wanted. Note it also blocks _legitimate_ deletes:
      the app removes a previous org logo on replacement
      (`routes/orgs.ts`), which would start failing — harmlessly, since that call
      is already `.catch()`-wrapped, but it would leave old logos as orphans. And

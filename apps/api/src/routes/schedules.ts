@@ -111,7 +111,11 @@ export async function scheduleRoutes(app: FastifyInstance): Promise<void> {
       targetType: 'schedule',
       targetId: schedule.id,
       organizationId: req.params.orgId,
-      metadata: { name: schedule.name, playlistId: schedule.playlistId, priority: schedule.priority },
+      metadata: {
+        name: schedule.name,
+        playlistId: schedule.playlistId,
+        priority: schedule.priority,
+      },
     });
     return reply.status(201).send(serializeSchedule(schedule));
   });
@@ -289,7 +293,11 @@ export async function scheduleRoutes(app: FastifyInstance): Promise<void> {
       targetType: 'schedule',
       targetId: schedule.id,
       organizationId: req.params.orgId,
-      metadata: { name: schedule.name, playlistId: schedule.playlistId, priority: schedule.priority },
+      metadata: {
+        name: schedule.name,
+        playlistId: schedule.playlistId,
+        priority: schedule.priority,
+      },
     });
     return reply.status(204).send();
   });

@@ -24,12 +24,7 @@ function connection(env: Env) {
   };
 }
 
-async function runAlerts(
-  prisma: PrismaClient,
-  redis: Redis,
-  env: Env,
-  log: Logger,
-): Promise<void> {
+async function runAlerts(prisma: PrismaClient, redis: Redis, env: Env, log: Logger): Promise<void> {
   if (!env.ALERT_NTFY_URL) {
     log.debug('alerts: no ALERT_NTFY_URL configured, skipping');
     return;
@@ -46,7 +41,13 @@ async function runAlerts(
   }
 
   const now = new Date();
-  const snapshot = await gatherSnapshot(prisma, redis, queueWaiting, env.ALERT_OFFLINE_MINUTES, now);
+  const snapshot = await gatherSnapshot(
+    prisma,
+    redis,
+    queueWaiting,
+    env.ALERT_OFFLINE_MINUTES,
+    now,
+  );
   const current = evaluateAlerts(snapshot, {
     emergencyHours: env.ALERT_EMERGENCY_HOURS,
     offlineMinutes: env.ALERT_OFFLINE_MINUTES,
@@ -88,7 +89,10 @@ async function runAlerts(
     log.info({ alert: id }, 'alerts: resolved');
   }
 
-  log.debug({ firing: current.length, sent: toSend.length, resolved: resolved.length }, 'alerts: evaluated');
+  log.debug(
+    { firing: current.length, sent: toSend.length, resolved: resolved.length },
+    'alerts: evaluated',
+  );
 }
 
 /**
@@ -138,11 +142,17 @@ export async function startMaintenance(
     },
     { connection: connection(env), concurrency: 1 },
   );
-  worker.on('failed', (job, err) => log.error({ jobId: job?.id, name: job?.name, err }, 'maintenance: job failed'));
+  worker.on('failed', (job, err) =>
+    log.error({ jobId: job?.id, name: job?.name, err }, 'maintenance: job failed'),
+  );
   worker.on('error', (err) => log.error({ err }, 'maintenance: queue error'));
 
   if (env.RETENTION_ENABLED) {
-    await queue.upsertJobScheduler('retention', { pattern: env.RETENTION_CRON }, { name: 'retention', data: {} });
+    await queue.upsertJobScheduler(
+      'retention',
+      { pattern: env.RETENTION_CRON },
+      { name: 'retention', data: {} },
+    );
     log.info(
       { cron: env.RETENTION_CRON, dryRun: env.RETENTION_DRY_RUN },
       env.RETENTION_DRY_RUN
@@ -155,7 +165,11 @@ export async function startMaintenance(
   }
 
   if (env.ALERT_NTFY_URL) {
-    await queue.upsertJobScheduler('alerts', { pattern: env.ALERT_CRON }, { name: 'alerts', data: {} });
+    await queue.upsertJobScheduler(
+      'alerts',
+      { pattern: env.ALERT_CRON },
+      { name: 'alerts', data: {} },
+    );
     log.info({ cron: env.ALERT_CRON }, 'alerting scheduled');
   } else {
     await queue.removeJobScheduler('alerts').catch(() => undefined);

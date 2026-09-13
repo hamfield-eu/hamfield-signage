@@ -1,12 +1,12 @@
 # T011 — Backup, restore and the upgrade path
 
-| | |
-|---|---|
-| **Estimate** | M |
-| **Risk** | **High** — this is the task that decides whether a disk failure is an inconvenience or the end of the product |
-| **Depends on** | T010 (needs a real deployment to back up) |
-| **Blocks** | Every future upgrade. Nothing should be deployed to a customer before this is done and **drilled**. |
-| **Status** | Backups running and verified. Fresh-VPS drill **waived by the owner, 2026-09-09** (see "Drill waiver"). Three acceptance items remain open. |
+|                |                                                                                                                                             |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Estimate**   | M                                                                                                                                           |
+| **Risk**       | **High** — this is the task that decides whether a disk failure is an inconvenience or the end of the product                               |
+| **Depends on** | T010 (needs a real deployment to back up)                                                                                                   |
+| **Blocks**     | Every future upgrade. Nothing should be deployed to a customer before this is done and **drilled**.                                         |
+| **Status**     | Backups running and verified. Fresh-VPS drill **waived by the owner, 2026-09-09** (see "Drill waiver"). Three acceptance items remain open. |
 
 > Self-contained by design: a fresh Claude Code session has no memory of the
 > review that produced this file.
@@ -21,7 +21,7 @@ Two independent guarantees:
 
 1. **Recoverable** — if the VPS disk dies tonight, a new VPS can be restored from
    off-box backups to a working state with acceptable data loss (target: ≤ 24 h).
-   This must be *proven by drill*, not asserted.
+   This must be _proven by drill_, not asserted.
 2. **Upgradeable** — a new release can be deployed through a controlled sequence
    (backup → migrate → verify → rollback-if-needed) without rebuilding from
    scratch and without ad-hoc surgery.
@@ -53,7 +53,7 @@ What exists today:
 - Media objects: if T010 chose model A (Cloudflare R2), object durability is the
   provider's. If model B (self-hosted MinIO), the `minio-data` volume is
   backup-critical and much larger than the database.
-- Soft deletes mean the database is the source of truth for *what exists*, while
+- Soft deletes mean the database is the source of truth for _what exists_, while
   S3 holds the bytes. A restored database referencing objects that were purged
   from storage produces media stuck at `ready` with dead storage keys. Backups of
   the two must therefore be **coordinated in time**, or the restore must tolerate
@@ -64,6 +64,7 @@ What exists today:
 ## Files likely involved
 
 **Create:**
+
 - `infra/backup/backup.sh` — dump Postgres, bundle config, ship off-box, prune
 - `infra/backup/restore.sh` — restore into a fresh stack, with confirmations
 - `infra/backup/verify-backup.sh` — prove a dump is restorable, not just present
@@ -71,15 +72,18 @@ What exists today:
 - `docs/tasks/` sibling: the runbook narrative lives in **T014**
 
 **Optionally create:**
+
 - A `backup` service in `infra/docker/docker-compose.prod.example.yml` (a small
-  cron-driven container), *or* a host-level systemd timer. Prefer the host timer:
+  cron-driven container), _or_ a host-level systemd timer. Prefer the host timer:
   fewer moving parts, and it still works when the stack is down.
 
 **Edit:**
+
 - `docs/deployment.md` — replace `§10` with a pointer to the scripts and the drill
 - `.gitignore` — ensure backup output directories and any credentials file are excluded
 
 **Read-only reference:**
+
 - `packages/database/prisma/migrations/` (migration history and lock file)
 - `packages/database/prisma/schema.prisma` (what is in the DB)
 - `infra/docker/docker-compose.prod.example.yml` (volume + anchor layout)
@@ -104,16 +108,16 @@ What exists today:
 
 ### 1. Define exactly what must be backed up
 
-| Item | Where | Method | Frequency | Loss if missing |
-|---|---|---|---|---|
-| PostgreSQL | `postgres-data` volume | `pg_dump -Fc` (custom format) | Nightly + pre-upgrade | **Total.** All orgs, users, devices, playlists, schedules, media metadata, audit log |
-| `docker-compose.yml` | host, git-ignored | file copy into the bundle | On change + nightly | DB password, service topology |
-| `infra/docker/docker-compose.prod.yml` | host, git-ignored | file copy | On change + nightly | **`JWT_SECRET`, DB password, S3 credentials** |
-| `infra/docker/Caddyfile` | host, git-ignored | file copy | On change + nightly | Domain/TLS config (cheap to recreate) |
-| `.env.prod` (if T010 used one) | host, git-ignored | file copy | On change + nightly | All secrets |
-| Deployed git SHA | host | `git rev-parse HEAD` into the bundle | Every backup | Cannot reproduce the exact running version |
-| Media objects | R2 (model A) *or* `minio-data` (model B) | provider durability *or* `mc mirror` / volume tar | Model B: nightly | All customer content |
-| `caddy-data` | volume | optional tar | Weekly | Nothing — certs re-issue (but watch LE rate limits) |
+| Item                                   | Where                                    | Method                                            | Frequency             | Loss if missing                                                                      |
+| -------------------------------------- | ---------------------------------------- | ------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------ |
+| PostgreSQL                             | `postgres-data` volume                   | `pg_dump -Fc` (custom format)                     | Nightly + pre-upgrade | **Total.** All orgs, users, devices, playlists, schedules, media metadata, audit log |
+| `docker-compose.yml`                   | host, git-ignored                        | file copy into the bundle                         | On change + nightly   | DB password, service topology                                                        |
+| `infra/docker/docker-compose.prod.yml` | host, git-ignored                        | file copy                                         | On change + nightly   | **`JWT_SECRET`, DB password, S3 credentials**                                        |
+| `infra/docker/Caddyfile`               | host, git-ignored                        | file copy                                         | On change + nightly   | Domain/TLS config (cheap to recreate)                                                |
+| `.env.prod` (if T010 used one)         | host, git-ignored                        | file copy                                         | On change + nightly   | All secrets                                                                          |
+| Deployed git SHA                       | host                                     | `git rev-parse HEAD` into the bundle              | Every backup          | Cannot reproduce the exact running version                                           |
+| Media objects                          | R2 (model A) _or_ `minio-data` (model B) | provider durability _or_ `mc mirror` / volume tar | Model B: nightly      | All customer content                                                                 |
+| `caddy-data`                           | volume                                   | optional tar                                      | Weekly                | Nothing — certs re-issue (but watch LE rate limits)                                  |
 
 Use `pg_dump -Fc` (custom format), not plain SQL: it supports parallel restore,
 selective restore, and `pg_restore --list` for inspection.
@@ -138,7 +142,7 @@ Requirements:
   6. `tar -czf backup-$TS.tar.gz -C "$WORK" .`
   7. Encrypt: `age` or `gpg --symmetric`. **The bundle contains `JWT_SECRET` and
      the DB password — it must not sit unencrypted on third-party storage.**
-     Store the passphrase somewhere that is *not* the VPS (password manager).
+     Store the passphrase somewhere that is _not_ the VPS (password manager).
   8. Ship off-box (step 3).
   9. Prune per the retention policy (step 5).
   10. Log a one-line result and exit non-zero on any failure.
@@ -190,7 +194,7 @@ and still recover", not by cost. The original figures are kept here for context:
 All four are `KEEP_*` environment overrides in `infra/backup/backup.sh`.
 
 Document the resulting RPO explicitly: with nightly dumps, worst-case data loss
-is ~24 h of dashboard changes plus device telemetry. Device *content* is
+is ~24 h of dashboard changes plus device telemetry. Device _content_ is
 unaffected — devices keep playing from their local cache regardless.
 
 ### 6. `infra/backup/restore.sh`
@@ -226,7 +230,7 @@ land in one of two skewed states:
 
 Write the reconciliation check as part of the post-restore verification. Accept
 the skew rather than trying to make the two atomic — atomicity is not worth the
-complexity here, but *knowing* about the skew is mandatory.
+complexity here, but _knowing_ about the skew is mandatory.
 
 ### 8. Pre-upgrade / release procedure
 
@@ -281,13 +285,13 @@ does not pass. **A backup that has never been restored is not a backup.**
 
 ### 10. Rollback procedure
 
-| Scenario | Rollback |
-|---|---|
-| Config change broke the deploy, no migration ran | Restore the previous config files, `docker compose up -d`. Seconds. |
-| New code broke the deploy, no new migration | `git checkout <previous-sha>`, rebuild, `up -d`. Minutes. Data untouched. |
-| New code + additive migration, code is broken | `git checkout <previous-sha>`, rebuild, `up -d`. The extra columns are ignored by the old code. Minutes. **This is why additive-only migrations matter.** |
+| Scenario                                          | Rollback                                                                                                                                                   |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Config change broke the deploy, no migration ran  | Restore the previous config files, `docker compose up -d`. Seconds.                                                                                        |
+| New code broke the deploy, no new migration       | `git checkout <previous-sha>`, rebuild, `up -d`. Minutes. Data untouched.                                                                                  |
+| New code + additive migration, code is broken     | `git checkout <previous-sha>`, rebuild, `up -d`. The extra columns are ignored by the old code. Minutes. **This is why additive-only migrations matter.**  |
 | New code + destructive migration, anything broken | **Full restore from the pre-upgrade backup.** Restore script, previous SHA. Expect ~15–30 min and loss of everything written since the pre-upgrade backup. |
-| Disk failure / VPS loss | Provision a new VPS, run T010's first-deploy, then `restore.sh` with the latest bundle. |
+| Disk failure / VPS loss                           | Provision a new VPS, run T010's first-deploy, then `restore.sh` with the latest bundle.                                                                    |
 
 Record the expected duration of each so an incident does not become a guessing
 game about whether to wait or roll back.
@@ -300,23 +304,23 @@ game about whether to wait or roll back.
       containing the DB dump, all config files, and a manifest with the git SHA
       and schema version.
 - [~] The bundle lands **off the VPS** automatically — on a dedicated R2 bucket
-      the application's own credential cannot reach. **Partial:** the backup
-      token itself lives on the VPS and *can* delete bundles. Closing this needs
-      R2 Bucket Lock on the `backups/` prefix, or a pull-based second copy.
+  the application's own credential cannot reach. **Partial:** the backup
+  token itself lives on the VPS and _can_ delete bundles. Closing this needs
+  R2 Bucket Lock on the `backups/` prefix, or a pull-based second copy.
 - [~] `verify-backup.sh` runs after every backup and the unit fails on a bad
-      bundle. **Partial:** the notification is still the local-syslog
-      placeholder, so the alert dies with the box it is warning about.
+  bundle. **Partial:** the notification is still the local-syslog
+  placeholder, so the alert dies with the box it is warning about.
 - [x] Retention prunes correctly and keeps pre-upgrade backups for 30 days.
       Verified against a fabricated 400-day history: 14/8/12 exactly, weeklies
       all Sundays, monthlies all 1sts, unparseable names kept and flagged.
 - [~] **WAIVED by the owner, 2026-09-09.** The fresh-VPS drill was not performed.
-      See "Drill waiver" below for the evidence accepted in its place and the
-      residual risk.
+  See "Drill waiver" below for the evidence accepted in its place and the
+  residual risk.
 - [~] Restoring produces a working stack. **Evidenced, not proven:** the
-      rehearsal confirmed the *data* survives — superadmin with an intact bcrypt
-      hash, 2 live device tokens as valid SHA-256 hashes, all row counts, the
-      audit log. It did **not** start a stack, so "login works" and "a device
-      reconnects" remain inferred from the data rather than observed.
+  rehearsal confirmed the _data_ survives — superadmin with an intact bcrypt
+  hash, 2 live device tokens as valid SHA-256 hashes, all row counts, the
+  audit log. It did **not** start a stack, so "login works" and "a device
+  reconnects" remain inferred from the data rather than observed.
 - [ ] The upgrade procedure is documented and has been executed at least once on
       a non-production host.
 - [ ] The rollback table above is documented with measured durations.
@@ -371,7 +375,7 @@ found by running the code, not by reading it.
 
 **Found while building `backup.sh` / `verify-backup.sh`:**
 
-1. `pg_isready` returns success against the *temporary* server the official
+1. `pg_isready` returns success against the _temporary_ server the official
    postgres entrypoint runs while initialising a cluster. Waiting on it alone
    hands back a connection that dies mid-restore with
    `FATAL: the database system is shutting down`. Wait for the
@@ -436,7 +440,7 @@ Passed, in 20 seconds:
 
 What this does NOT establish, and why the drill still stands: the machine already
 had Docker, the repo and the images, so it says nothing about whether a bare VPS
-plus `docs/deployment.md` plus a bundle is *sufficient*. No stack was started —
+plus `docs/deployment.md` plus a bundle is _sufficient_. No stack was started —
 Caddy was never run (an ACME attempt for the production domain risks a
 Let's Encrypt lockout) and the R2 media credentials were never used. `restore.sh`
 itself remains unexecuted end to end, and RTO is still unmeasured.
@@ -449,7 +453,7 @@ T013's retention job is therefore what governs backup size, not just server disk
 
 - `OnFailure` only writes to local syslog — the alert dies with the box it is
   warning about. A **dead-man's switch** (an external service that alarms on a
-  *missing* ping) is the right shape here: it catches a failed job, a hung job,
+  _missing_ ping) is the right shape here: it catches a failed job, a hung job,
   a dead server and a deleted timer with one mechanism.
 - DB↔storage reconciliation (step 7) is not implemented; `restore.sh` lists it
   in its closing checklist.
@@ -474,7 +478,7 @@ knows this was a decision and not an oversight.
 
 - a real bundle from R2 decrypts with the real age private key
 - its `db.dump` matches the manifest SHA-256 and restores with `pg_restore
-  --exit-on-error` clean
+--exit-on-error` clean
 - row counts match production exactly, and the `_prisma_migrations` head matches
   the manifest, so no `migrate deploy` is needed on restore
 - `device_tokens` and the superadmin bcrypt hash survive intact
@@ -485,7 +489,7 @@ knows this was a decision and not an oversight.
 - `restore.sh` has never run to completion. Only its refusal paths are proven.
   A bug in steps 5-9 would be discovered during an actual outage.
 - **RTO is unmeasured.** Nobody knows whether recovery takes 30 minutes or a day.
-- It is unproven that `docs/deployment.md` plus a bundle is *sufficient* to
+- It is unproven that `docs/deployment.md` plus a bundle is _sufficient_ to
   rebuild from bare metal. Any undocumented step on the current host is invisible
   until it is needed.
 - The rehearsal ran on a machine that already had Docker, the repository and the

@@ -44,7 +44,11 @@ async function probe(fn: () => Promise<unknown>): Promise<CheckResult> {
     return { ok: true, latencyMs: Date.now() - started };
   } catch (err) {
     const timedOut = err instanceof Error && err.message === 'timeout';
-    return { ok: false, latencyMs: Date.now() - started, error: timedOut ? 'timeout' : 'unreachable' };
+    return {
+      ok: false,
+      latencyMs: Date.now() - started,
+      error: timedOut ? 'timeout' : 'unreachable',
+    };
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -60,11 +64,22 @@ async function checkWorkers(): Promise<CheckResult> {
     let cursor = '0';
     let count = 0;
     do {
-      const [next, keys] = await redis.scan(cursor, 'MATCH', `${WORKER_ALIVE_KEY_PREFIX}*`, 'COUNT', 100);
+      const [next, keys] = await redis.scan(
+        cursor,
+        'MATCH',
+        `${WORKER_ALIVE_KEY_PREFIX}*`,
+        'COUNT',
+        100,
+      );
       cursor = next;
       count += keys.length;
     } while (cursor !== '0');
-    return { ok: count > 0, count, latencyMs: Date.now() - started, ...(count > 0 ? {} : { error: 'no live worker' }) };
+    return {
+      ok: count > 0,
+      count,
+      latencyMs: Date.now() - started,
+      ...(count > 0 ? {} : { error: 'no live worker' }),
+    };
   } catch {
     return { ok: false, latencyMs: Date.now() - started, error: 'unreachable' };
   }

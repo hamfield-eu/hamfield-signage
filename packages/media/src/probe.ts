@@ -103,7 +103,8 @@ export function interpretProbeOutput(parsed: FfprobeOutput): ProbeResult {
     height,
     orientation: classifyOrientation(width, height),
     durationSeconds: duration,
-    frameRate: parseFrameRate(videoStream.avg_frame_rate) ?? parseFrameRate(videoStream.r_frame_rate),
+    frameRate:
+      parseFrameRate(videoStream.avg_frame_rate) ?? parseFrameRate(videoStream.r_frame_rate),
     videoCodec: videoStream.codec_name ?? null,
     audioCodec: audioStream?.codec_name ?? null,
     container: parsed.format?.format_name ?? null,

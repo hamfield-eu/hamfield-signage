@@ -39,7 +39,12 @@ export interface PlatformHealthDto {
   dependencies: Awaited<ReturnType<typeof readyReport>>;
   fleet: { total: number; online: number; offline: number; syncError: number };
   media: { pending: number; processing: number; failed: number };
-  activeOverrides: Array<{ id: string; name: string; organizationName: string; hoursActive: number }>;
+  activeOverrides: Array<{
+    id: string;
+    name: string;
+    organizationName: string;
+    hoursActive: number;
+  }>;
   queue: { waiting: number; active: number } | null;
   lastRetentionRun: { at: string; dryRun: boolean; totalDeleted: number } | null;
   lastBackupAt: string | null;
@@ -385,7 +390,12 @@ export async function superadminRoutes(app: FastifyInstance): Promise<void> {
         }),
         prisma.emergencyOverride.findMany({
           where: { active: true },
-          select: { id: true, name: true, startedAt: true, organization: { select: { name: true } } },
+          select: {
+            id: true,
+            name: true,
+            startedAt: true,
+            organization: { select: { name: true } },
+          },
           orderBy: { startedAt: 'asc' },
         }),
         prisma.auditLog.findFirst({

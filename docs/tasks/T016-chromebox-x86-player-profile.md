@@ -1,12 +1,12 @@
 # T016 — Acer Chromebox CXI3 / x86 thin-client player profile
 
-| | |
-|---|---|
-| **Estimate** | M |
-| **Risk** | Medium — GPU flags can crash-loop the Chromium GPU process or produce a black screen with correct audio. All changes must be revertible from `/etc/signage/agent.env` |
-| **Depends on** | T015 (do not soak-test a platform whose known hang is unfixed) |
-| **Blocks** | Rolling out x86 thin clients as a supported platform |
-| **Status** | Not started |
+|                |                                                                                                                                                                       |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Estimate**   | M                                                                                                                                                                     |
+| **Risk**       | Medium — GPU flags can crash-loop the Chromium GPU process or produce a black screen with correct audio. All changes must be revertible from `/etc/signage/agent.env` |
+| **Depends on** | T015 (do not soak-test a platform whose known hang is unfixed)                                                                                                        |
+| **Blocks**     | Rolling out x86 thin clients as a supported platform                                                                                                                  |
+| **Status**     | Not started                                                                                                                                                           |
 
 > Self-contained by design: a fresh Claude Code session has no memory of the
 > review that produced this file.
@@ -24,7 +24,7 @@ hardware validation checklist and a 72-hour soak.
 
 ## Context from the review report
 
-### The GPU auto-detection excludes x86 by construction *(F3 / A8 — Critical, CONFIRMED)*
+### The GPU auto-detection excludes x86 by construction _(F3 / A8 — Critical, CONFIRMED)_
 
 `infra/device/start-player.sh` detects a hardware Vulkan driver via
 `vulkaninfo --summary`, filtering out software implementations
@@ -45,7 +45,7 @@ as "no GPU".
 A `gles` mode already exists in the script and is fully implemented — it is
 simply never selected by auto-detection.
 
-### There is no video-decode acceleration on *any* platform *(CONFIRMED)*
+### There is no video-decode acceleration on _any_ platform _(CONFIRMED)_
 
 Neither the `vulkan` nor the `gles` `GPU_FLAGS` block contains a VA-API or
 video-decode flag. `--use-angle=vulkan` accelerates **compositing**, not H.264
@@ -62,7 +62,7 @@ the entire fleet today**, ARM and x86 alike. This is the most likely contributor
 to the reported ARM playback problems, and it is the biggest single win available
 on x86.
 
-### The escape hatch already exists *(good design — build on it)*
+### The escape hatch already exists _(good design — build on it)_
 
 `start-player.sh:57-61` documents two overrides read from
 `/etc/signage/agent.env`:
@@ -74,7 +74,7 @@ So the whole flag matrix below can be tested **without a code change**, one
 `signage config set` at a time. Use that for the investigation, then encode the
 validated result as a profile.
 
-### The dashboard cannot tell you whether acceleration is on *(F20 — CONFIRMED)*
+### The dashboard cannot tell you whether acceleration is on _(F20 — CONFIRMED)_
 
 `apps/agent/src/metrics.ts` `collectMetrics` returns app version, OS, arch,
 device model, uptime, CPU, memory, disk, cache size, playback position, manifest
@@ -185,16 +185,16 @@ requires for `/dev/dri/renderD*` access. Verify this holds on the unit.
 
 Replace the Pi-only `case` in `start-player.sh` with an explicit mapping:
 
-| Detected Vulkan driver | Mode | Rationale |
-|---|---|---|
-| `*v3dv*` | `vulkan` | Raspberry Pi 4/5 — current known-good, do not regress it |
-| `*anv*` / `intel` | `gles` | Intel; ANGLE-on-GLES is the conservative accelerated path |
-| `*radv*` / `amd` | `gles` | Same reasoning; unvalidated, mark as such |
-| `lavapipe` / `llvmpipe` / none | `software` | Genuinely no GPU |
-| anything else | `software` | Unknown hardware — stay safe, and **log the driver name** so unknown hardware is discoverable from the logs |
+| Detected Vulkan driver         | Mode       | Rationale                                                                                                   |
+| ------------------------------ | ---------- | ----------------------------------------------------------------------------------------------------------- |
+| `*v3dv*`                       | `vulkan`   | Raspberry Pi 4/5 — current known-good, do not regress it                                                    |
+| `*anv*` / `intel`              | `gles`     | Intel; ANGLE-on-GLES is the conservative accelerated path                                                   |
+| `*radv*` / `amd`               | `gles`     | Same reasoning; unvalidated, mark as such                                                                   |
+| `lavapipe` / `llvmpipe` / none | `software` | Genuinely no GPU                                                                                            |
+| anything else                  | `software` | Unknown hardware — stay safe, and **log the driver name** so unknown hardware is discoverable from the logs |
 
 Keep `software` as the fallback for unknown drivers, but log loudly enough that
-an operator can see *why* a device ended up there. The script already echoes
+an operator can see _why_ a device ended up there. The script already echoes
 `kiosk: GPU mode=… (hardware vulkan driver: …)` to stderr — keep and extend that.
 
 ### 4. Chromium flag matrix — test in order, one variable at a time
@@ -203,15 +203,15 @@ Set via `signage config set SIGNAGE_CHROMIUM_EXTRA_FLAGS "…"` and
 `SIGNAGE_KIOSK_GPU`, then `signage restart-player`. **Record the observable at
 each step in the hardware matrix document.**
 
-| Step | Change | Observable that decides it |
-|---|---|---|
-| 0 | Baseline `SIGNAGE_KIOSK_GPU=software` | `chrome://gpu` all "Software only". `top` during 1080p: expect a core near 100% |
-| 1 | `SIGNAGE_KIOSK_GPU=gles` | `chrome://gpu`: Canvas + Compositing "Hardware accelerated". No GPU-process crash loop in `signage player-logs` |
-| 2 | Install VA-API driver; confirm `vainfo` | H.264 VLD entrypoint listed. **Gate — do not continue without it** |
-| 3 | Add `--enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL` | `chrome://gpu` → "Video Decode: Hardware accelerated". `chrome://media-internals` during playback shows a VA-API/VDA decoder, **not** `FFmpegVideoDecoder`. CPU drops to single digits |
-| 4 | If step 3 gives black video with correct timing: try `--disable-features=UseChromeOSDirectVideoDecoder`, or revert to step 1 | Visual |
-| 5 | `--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows` | Guards against Chromium throttling the kiosk tab. Low risk; worth keeping regardless of GPU outcome |
-| 6 | `--disable-dev-shm-usage` if `/dev/shm` is small | Renderer OOM crashes in `player-logs` |
+| Step | Change                                                                                                                       | Observable that decides it                                                                                                                                                             |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | Baseline `SIGNAGE_KIOSK_GPU=software`                                                                                        | `chrome://gpu` all "Software only". `top` during 1080p: expect a core near 100%                                                                                                        |
+| 1    | `SIGNAGE_KIOSK_GPU=gles`                                                                                                     | `chrome://gpu`: Canvas + Compositing "Hardware accelerated". No GPU-process crash loop in `signage player-logs`                                                                        |
+| 2    | Install VA-API driver; confirm `vainfo`                                                                                      | H.264 VLD entrypoint listed. **Gate — do not continue without it**                                                                                                                     |
+| 3    | Add `--enable-features=VaapiVideoDecoder,VaapiVideoDecodeLinuxGL`                                                            | `chrome://gpu` → "Video Decode: Hardware accelerated". `chrome://media-internals` during playback shows a VA-API/VDA decoder, **not** `FFmpegVideoDecoder`. CPU drops to single digits |
+| 4    | If step 3 gives black video with correct timing: try `--disable-features=UseChromeOSDirectVideoDecoder`, or revert to step 1 | Visual                                                                                                                                                                                 |
+| 5    | `--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows`            | Guards against Chromium throttling the kiosk tab. Low risk; worth keeping regardless of GPU outcome                                                                                    |
+| 6    | `--disable-dev-shm-usage` if `/dev/shm` is small                                                                             | Renderer OOM crashes in `player-logs`                                                                                                                                                  |
 
 **Critical caveat:** VA-API feature flag names change between Chromium major
 versions. Check the actual build's `chrome://flags` and `--help` rather than

@@ -1,12 +1,12 @@
 # T010 — Production deployment baseline (VPS + Docker Compose)
 
-| | |
-|---|---|
-| **Estimate** | M |
-| **Risk** | Medium — touches deployment config only, but a mistake here means an exposed database or an unrecoverable server |
-| **Depends on** | Nothing. **This is the first task.** |
-| **Blocks** | T011, T012, T013, T014 |
-| **Status** | **Repo changes complete** — VPS deploy + smoke test still pending (see "Outcome" at the end) |
+|                |                                                                                                                  |
+| -------------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Estimate**   | M                                                                                                                |
+| **Risk**       | Medium — touches deployment config only, but a mistake here means an exposed database or an unrecoverable server |
+| **Depends on** | Nothing. **This is the first task.**                                                                             |
+| **Blocks**     | T011, T012, T013, T014                                                                                           |
+| **Status**     | **Repo changes complete** — VPS deploy + smoke test still pending (see "Outcome" at the end)                     |
 
 > Self-contained by design: a fresh Claude Code session has no memory of the review
 > that produced this file, so the context below restates what matters. Same
@@ -48,18 +48,18 @@ The repo already ships most of this as **templates**, not as a working deploymen
 
 1. **No named volumes in the prod override.** The base file defines
    `postgres-data`, `redis-data`, `minio-data`, and the override adds
-   `caddy-data`/`caddy-config`. This is correct *as long as* the operator never
+   `caddy-data`/`caddy-config`. This is correct _as long as_ the operator never
    runs `docker compose down -v`. That footgun is currently only a docs warning.
    → Needs an explicit volume/persistence section and a "never run `down -v`"
    guard in the runbook (T014).
 2. **No healthchecks on `api`, `worker` or `web`.** Only postgres/redis/minio have
    them (`docker-compose.example.yml`). Without them, `restart: unless-stopped`
-   restarts a *crashed* container but never an *unhealthy* one.
+   restarts a _crashed_ container but never an _unhealthy_ one.
    → Full deep-health work is **T013**; this task adds the basic wiring hooks.
 3. **`/health` is not proxied.** `apps/api/src/server.ts:104` registers `/health`
    outside the `/api/v1` prefix, and `web-nginx.conf` only proxies `location /api/`.
    So `https://<domain>/health` 404s and returns the SPA. `docs/device-install.md:145`
-   tells operators to `curl $SIGNAGE_SERVER_URL/healthz`, which is the *agent's*
+   tells operators to `curl $SIGNAGE_SERVER_URL/healthz`, which is the _agent's_
    route and has never worked against the server. Both are documentation bugs
    that mislead during a first deploy.
 4. **Containers run as root.** No `USER` directive in any of the four Dockerfiles.
@@ -81,12 +81,14 @@ The repo already ships most of this as **templates**, not as a working deploymen
 ## Files likely involved
 
 **Create (real, git-ignored, on the server):**
+
 - `docker-compose.yml` — from `docker-compose.example.yml`
 - `infra/docker/docker-compose.prod.yml` — from `infra/docker/docker-compose.prod.example.yml`
 - `infra/docker/Caddyfile` — from `infra/docker/Caddyfile.example`
 - `.env.prod` (or equivalent) — see "Production env handling" below
 
 **Edit (committed templates):**
+
 - `docker-compose.example.yml` — add healthcheck stanzas for api/worker/web (hooks only; T013 fills in the deep check)
 - `infra/docker/docker-compose.prod.example.yml` — explicit volume documentation, `env_file` wiring, log rotation defaults
 - `infra/docker/web-nginx.conf` — expose `/health` through the proxy (see plan step 6)
@@ -94,6 +96,7 @@ The repo already ships most of this as **templates**, not as a working deploymen
 - `docs/device-install.md:145` — fix the `curl $SIGNAGE_SERVER_URL/healthz` line
 
 **Read-only reference (do not change in this task):**
+
 - `apps/api/src/server.ts` (`/health`, CORS, rate limit, multipart registration)
 - `apps/api/src/env.ts` (env schema + production JWT guard)
 - `apps/api/src/lib/superadmin.ts`, `apps/api/src/cli/*`
@@ -165,12 +168,12 @@ The prod override currently inlines secrets directly in YAML. Improve this:
 
 Named Docker volumes, all defined in `docker-compose.yml`:
 
-| Volume | Holds | Backup-critical? |
-|---|---|---|
-| `postgres-data` | all metadata: orgs, users, devices, playlists, schedules, media rows, audit log | **Yes — irreplaceable** |
-| `redis-data` | BullMQ queue state, pub/sub | No — rebuildable; in-flight jobs are lost, media can be re-processed |
-| `minio-data` | media objects (**model B only**) | **Yes, if using MinIO** |
-| `caddy-data` / `caddy-config` | TLS certificates + ACME account | No — re-issues automatically, but restoring avoids Let's Encrypt rate limits |
+| Volume                        | Holds                                                                           | Backup-critical?                                                             |
+| ----------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `postgres-data`               | all metadata: orgs, users, devices, playlists, schedules, media rows, audit log | **Yes — irreplaceable**                                                      |
+| `redis-data`                  | BullMQ queue state, pub/sub                                                     | No — rebuildable; in-flight jobs are lost, media can be re-processed         |
+| `minio-data`                  | media objects (**model B only**)                                                | **Yes, if using MinIO**                                                      |
+| `caddy-data` / `caddy-config` | TLS certificates + ACME account                                                 | No — re-issues automatically, but restoring avoids Let's Encrypt rate limits |
 
 Rules to write into the runbook (T014) and enforce by habit:
 
@@ -185,7 +188,7 @@ Also pin log rotation so container logs cannot fill the disk:
 ```yaml
 logging:
   driver: json-file
-  options: { max-size: "10m", max-file: "5" }
+  options: { max-size: '10m', max-file: '5' }
 ```
 
 Apply to `api`, `worker`, `web`, `caddy`.
@@ -215,7 +218,7 @@ proxies `location /api/`, so it is currently unreachable from outside. Pick one:
   as the only check (what `docs/deployment.md:§8` does today).
 
 Either way, **fix `docs/device-install.md:145`**, which currently instructs
-operators to `curl $SIGNAGE_SERVER_URL/healthz` — wrong path *and* wrong service
+operators to `curl $SIGNAGE_SERVER_URL/healthz` — wrong path _and_ wrong service
 (`/healthz` is the device agent's local player server, `apps/agent/src/player-server.ts`).
 
 ### 7. Migrations
@@ -343,14 +346,14 @@ half that needs an actual server is not, and cannot be from a workstation.
   and passed with `--env-file`.
 - **`infra/docker/docker-compose.prod.example.yml` — no credentials left in
   YAML.** Every value is now `${VAR:?message}`, read from `.env.prod`.
-  - *Deviation from plan step 3:* the plan said `env_file:`. That would have been
+  - _Deviation from plan step 3:_ the plan said `env_file:`. That would have been
     silently broken — a service's `environment:` map always wins over `env_file:`,
     and the base `docker-compose.yml` sets `S3_*`, `DATABASE_URL`, `JWT_SECRET`
     under `environment:`. An `env_file:` in the override would have been ignored
     for exactly those keys, so a production deploy would have quietly used
     `S3_ENDPOINT: http://minio:9000`. Interpolated `environment:` entries in the
-    override *do* win over the base file. Verified with `docker compose config`.
-  - *Filename:* `.env.prod`, not `.env`. `.env` is already the local-dev env file
+    override _do_ win over the base file. Verified with `docker compose config`.
+  - _Filename:_ `.env.prod`, not `.env`. `.env` is already the local-dev env file
     (`.env.example`), and Compose auto-loads it — a stray dev copy on the server
     would have leaked localhost URLs into production. `--env-file .env.prod`
     replaces the default `.env` entirely. Verified by planting a hostile `.env`
@@ -385,21 +388,21 @@ half that needs an actual server is not, and cannot be from a workstation.
   (volume table, the `down -v` rule, log caps, how to actually rotate the DB
   password), and §11–§14 renumbered with corrected troubleshooting rows.
   - §7 now defines `dc` as a shell **function** that refuses `-v`, replacing the
-    old `alias dc=…`. This matters: bash expands aliases *before* function
+    old `alias dc=…`. This matters: bash expands aliases _before_ function
     lookup, so keeping both would have left the alias shadowing the guard and the
     guard doing nothing. The doc says so explicitly and gives `type dc` as the
     check.
   - §6 (where a model-B operator actually lands) now repeats the
     "uncomment the `minio:` block" warning, not just §5c.
   - The smoke test's upload item is split in two: one large upload to prove the
-    body survives the proxy chain, and one *over* `MAX_UPLOAD_SIZE_BYTES` to
+    body survives the proxy chain, and one _over_ `MAX_UPLOAD_SIZE_BYTES` to
     confirm the API rejects it rather than a proxy. The three limits must be
     ordered `MAX_UPLOAD_SIZE_BYTES` ≤ nginx `client_max_body_size` ≤ Caddy
     `max_size`, or the API's error never reaches the user. (They currently are:
     1 GiB ≤ 2g ≤ 2GB.)
 - **`docs/device-install.md:145`** — `curl $SIGNAGE_SERVER_URL/healthz` →
   `curl -fsS $SIGNAGE_SERVER_URL/health`, with a note that `/healthz` is the
-  device's *own* player server. `infra/device/signage:48,101` were left alone —
+  device's _own_ player server. `infra/device/signage:48,101` were left alone —
   those call `127.0.0.1:<player_port>/healthz` and are correct.
 
 ### Added after review: §15, migrating a live deployment
@@ -477,7 +480,7 @@ operators on older images to `dc restart web` in the meantime.
 ### Correction to this task file
 
 Gap #2 above says healthchecks matter because `restart: unless-stopped` "never
-restarts an *unhealthy* container". Plain Docker/Compose does not restart on
+restarts an _unhealthy_ container". Plain Docker/Compose does not restart on
 unhealthy either — health status only drives `depends_on: condition:
 service_healthy` at startup, and restart-on-unhealthy in Swarm mode. What the new
 healthchecks buy is `docker compose ps` visibility and startup gating. Acting on

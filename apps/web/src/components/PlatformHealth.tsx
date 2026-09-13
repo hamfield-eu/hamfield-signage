@@ -97,7 +97,9 @@ export function PlatformHealth() {
           <span className={h.media.failed > 0 ? 'text-red-700' : ''}>{h.media.failed}</span>
         </Row>
         <Row label="Media processing">{h.media.pending + h.media.processing}</Row>
-        <Row label="Queue">{h.queue ? `${h.queue.waiting} waiting / ${h.queue.active} active` : 'unavailable'}</Row>
+        <Row label="Queue">
+          {h.queue ? `${h.queue.waiting} waiting / ${h.queue.active} active` : 'unavailable'}
+        </Row>
       </Card>
 
       <Card title="Operations">

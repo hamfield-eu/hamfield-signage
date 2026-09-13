@@ -90,7 +90,11 @@ export function assessBackupFreshness(
     return { ok: true, reason: 'backup marker is in the future; treating as fresh', ageHours };
   }
   if (ageHours > maxAgeHours) {
-    return { ok: false, reason: `last backup is ${ageHours.toFixed(1)}h old (max ${maxAgeHours}h)`, ageHours };
+    return {
+      ok: false,
+      reason: `last backup is ${ageHours.toFixed(1)}h old (max ${maxAgeHours}h)`,
+      ageHours,
+    };
   }
   return { ok: true, reason: 'recent backup present', ageHours };
 }
@@ -230,9 +234,19 @@ export async function runRetention(
   }
 
   const targets: Target[] = [
-    { name: 'device_heartbeats', table: 'device_heartbeats', column: 'createdAt', cutoff: cutoffs.heartbeats },
+    {
+      name: 'device_heartbeats',
+      table: 'device_heartbeats',
+      column: 'createdAt',
+      cutoff: cutoffs.heartbeats,
+    },
     { name: 'device_logs', table: 'device_logs', column: 'loggedAt', cutoff: cutoffs.deviceLogs },
-    { name: 'playback_events', table: 'playback_events', column: 'occurredAt', cutoff: cutoffs.playbackEvents },
+    {
+      name: 'playback_events',
+      table: 'playback_events',
+      column: 'occurredAt',
+      cutoff: cutoffs.playbackEvents,
+    },
   ];
 
   const tables: TableOutcome[] = [];

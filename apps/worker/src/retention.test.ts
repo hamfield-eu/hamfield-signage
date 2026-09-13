@@ -28,10 +28,12 @@ describe('computeCutoffs', () => {
   it('refuses a zero or negative window', () => {
     // `0` would mean "delete everything up to now" — a plausible typo, and an
     // unrecoverable one. Reject rather than compute it.
-    expect(() => computeCutoffs(NOW, { heartbeatDays: 0, deviceLogDays: 30, playbackEventDays: 90 })).toThrow(
-      /must be >= 1 day/,
-    );
-    expect(() => computeCutoffs(NOW, { heartbeatDays: -5, deviceLogDays: 30, playbackEventDays: 90 })).toThrow();
+    expect(() =>
+      computeCutoffs(NOW, { heartbeatDays: 0, deviceLogDays: 30, playbackEventDays: 90 }),
+    ).toThrow(/must be >= 1 day/);
+    expect(() =>
+      computeCutoffs(NOW, { heartbeatDays: -5, deviceLogDays: 30, playbackEventDays: 90 }),
+    ).toThrow();
   });
 
   it('refuses a non-numeric window', () => {
