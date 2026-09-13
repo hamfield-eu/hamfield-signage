@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node", "vitest/globals"],
+    // Vitest runs these as ES modules, which is what makes `import.meta` in the
+    // global setup legal. The shipped build stays CommonJS.
+    "module": "ESNext",
+    "moduleResolution": "Bundler"
+  },
+  "include": ["src", "vitest.config.ts", "vitest.integration.config.ts"]
+}

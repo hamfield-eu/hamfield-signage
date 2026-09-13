@@ -7,5 +7,9 @@
     "declaration": false,
     "declarationMap": false
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Tests are not part of the shipped image, and the integration harness uses
+  // ESM-only syntax (`import.meta`) that cannot compile to the CommonJS output
+  // this build produces. They are typechecked by tsconfig.test.json instead.
+  "exclude": ["src/**/*.test.ts", "src/test"]
 }
