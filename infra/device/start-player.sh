@@ -70,9 +70,15 @@ hardware_vulkan_driver() {
 VK_DRIVER=""
 if [ "$GPU_MODE" = auto ]; then
   VK_DRIVER="$(hardware_vulkan_driver || true)"
+  # Map the detected driver to a backend. Before this, only the Pi's V3DV
+  # mapped to anything accelerated and EVERY other board — including every
+  # Intel and AMD thin client — fell through to `software`. The logic treated
+  # "not a Pi" as "no GPU", so x86 composited in software by construction.
   case "$VK_DRIVER" in
-    *v3dv*) GPU_MODE=vulkan ;; # Raspberry Pi 4/5
-    *) GPU_MODE=software ;;    # ODROID C4 and everything else: safe default
+    *v3dv*) GPU_MODE=vulkan ;;         # Raspberry Pi 4/5 — known good, unchanged
+    *anv* | *intel*) GPU_MODE=gles ;;  # Intel: ANGLE-on-GLES, the conservative path
+    *radv* | *amd*) GPU_MODE=gles ;;   # AMD: same reasoning. UNVALIDATED — no unit tested
+    *) GPU_MODE=software ;;            # Genuinely no GPU, or hardware we don't know
   esac
 fi
 
@@ -111,7 +117,16 @@ if [ -n "${SIGNAGE_CHROMIUM_EXTRA_FLAGS:-}" ]; then
   EXTRA_FLAGS=(${SIGNAGE_CHROMIUM_EXTRA_FLAGS})
 fi
 
-echo "kiosk: GPU mode=${GPU_MODE} (hardware vulkan driver: ${VK_DRIVER:-none})" >&2
+# Log the driver name even when we fall back, so a device that ended up on
+# software compositing because its hardware is unrecognised is discoverable from
+# `signage player-logs` rather than silently slow.
+if [ "$GPU_MODE" = software ] && [ -n "$VK_DRIVER" ]; then
+  echo "kiosk: GPU mode=software — unrecognised hardware vulkan driver '${VK_DRIVER}'." >&2
+  echo "kiosk: add it to the driver map in start-player.sh, or force a mode with" >&2
+  echo "kiosk:   signage config set SIGNAGE_KIOSK_GPU gles" >&2
+else
+  echo "kiosk: GPU mode=${GPU_MODE} (hardware vulkan driver: ${VK_DRIVER:-none})" >&2
+fi
 
 PROFILE_DIR=/var/lib/signage/chromium-profile
 mkdir -p "$PROFILE_DIR"
