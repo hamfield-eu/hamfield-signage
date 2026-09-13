@@ -48,11 +48,19 @@ fi
 # backend per board instead of forcing one everywhere:
 #   * Raspberry Pi (V3D / V3DV driver): ANGLE-on-Vulkan initialises cleanly and
 #     removes the screen tearing you otherwise get from software compositing.
+#   * Intel/AMD (ANV / RADV): ANGLE on native desktop GL.
 #   * ODROID C4 (Mali) and any board without a usable Vulkan driver: stay on
 #     Chromium's default software compositing — slower, but it always renders
 #     and never crash-loops the GPU process.
+#
+# NOTE: the mode logged below is the one REQUESTED, not the one Chromium ended
+# up using. Chromium can reject a backend and set `--use-gl=disabled` itself,
+# which looks identical in these logs. To verify what actually happened:
+#   pgrep -af 'type=gpu-process' | grep -o 'use-gl=[a-z]*'   # must not be 'disabled'
+#   sudo intel_gpu_top                                        # RCS must be non-zero
 # Auto-detection can be overridden per device in /etc/signage/agent.env:
-#   SIGNAGE_KIOSK_GPU            = auto (default) | vulkan | gles | software
+#   SIGNAGE_KIOSK_GPU            = auto (default) | vulkan | angle | software
+#                                  (`gles` is accepted as an alias for `angle`)
 #   SIGNAGE_CHROMIUM_EXTRA_FLAGS = extra space-separated chromium flags
 GPU_MODE="${SIGNAGE_KIOSK_GPU:-auto}"
 
@@ -76,8 +84,8 @@ if [ "$GPU_MODE" = auto ]; then
   # "not a Pi" as "no GPU", so x86 composited in software by construction.
   case "$VK_DRIVER" in
     *v3dv*) GPU_MODE=vulkan ;;         # Raspberry Pi 4/5 — known good, unchanged
-    *anv* | *intel*) GPU_MODE=gles ;;  # Intel: ANGLE-on-GLES, the conservative path
-    *radv* | *amd*) GPU_MODE=gles ;;   # AMD: same reasoning. UNVALIDATED — no unit tested
+    *anv* | *intel*) GPU_MODE=angle ;; # Intel: ANGLE on native GL. Measured, see below
+    *radv* | *amd*) GPU_MODE=angle ;;  # AMD: same reasoning. UNVALIDATED — no unit tested
     *) GPU_MODE=software ;;            # Genuinely no GPU, or hardware we don't know
   esac
 fi
@@ -94,13 +102,25 @@ case "$GPU_MODE" in
       --enable-features=Vulkan
     )
     ;;
-  gles)
+  angle | gles)
+    # `--use-angle=gl`, NOT `gles`. ANGLE's GLES backend needs a native GLES
+    # driver to translate onto; Mesa on desktop Linux provides desktop GL. Given
+    # the wrong pairing Chromium does not fall back — it sets `--use-gl=disabled`
+    # internally and composites in software, while the launcher still cheerfully
+    # logs the mode it asked for.
+    #
+    # Measured on an Acer Chromebox CXI3 (Kaby Lake, Chromium 152), 1080p30:
+    #   --use-angle=gles : GL disabled, render engine 0%,     CPU idle ~30%
+    #   --use-angle=gl   : GL active,   render engine ~17%,   CPU idle ~57%
+    #
+    # `gles` is still accepted as a mode name for existing agent.env files; it
+    # selects this same block.
     GPU_FLAGS=(
       --ignore-gpu-blocklist
       --enable-gpu-rasterization
       --enable-zero-copy
       --use-gl=angle
-      --use-angle=gles
+      --use-angle=gl
     )
     ;;
   *)
@@ -123,7 +143,7 @@ fi
 if [ "$GPU_MODE" = software ] && [ -n "$VK_DRIVER" ]; then
   echo "kiosk: GPU mode=software — unrecognised hardware vulkan driver '${VK_DRIVER}'." >&2
   echo "kiosk: add it to the driver map in start-player.sh, or force a mode with" >&2
-  echo "kiosk:   signage config set SIGNAGE_KIOSK_GPU gles" >&2
+  echo "kiosk:   signage config set SIGNAGE_KIOSK_GPU angle" >&2
 else
   echo "kiosk: GPU mode=${GPU_MODE} (hardware vulkan driver: ${VK_DRIVER:-none})" >&2
 fi

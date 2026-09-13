@@ -44,26 +44,26 @@ Flags:
 
 ## Configuration (`/etc/signage/agent.env`)
 
-| Key                            | Default                          | Purpose                                                          |
-| ------------------------------ | -------------------------------- | ---------------------------------------------------------------- |
-| `SIGNAGE_SERVER_URL`           | —                                | Backend base URL                                                 |
-| `SIGNAGE_PAIRING_CODE`         | —                                | Consumed once at first start; cleared after pairing              |
-| `SIGNAGE_DATA_DIR`             | `/var/lib/signage`               | SQLite DB, cached media, device token                            |
-| `SIGNAGE_PLAYER_PORT`          | `8080`                           | Local player server port (127.0.0.1)                             |
-| `SIGNAGE_PLAYER_UI_DIR`        | `/opt/signage/player-ui`         | Built player UI                                                  |
-| `SIGNAGE_SCREENSHOT_CMD`       | `/opt/signage/bin/screenshot.sh` | Used by `take_screenshot`                                        |
-| `SIGNAGE_UPDATE_CMD`           | `/opt/signage/bin/update.sh`     | Used by `software_update`                                        |
-| `SIGNAGE_UPDATE_URL`           | (unset)                          | Release tarball URL for self-update                              |
-| `SIGNAGE_ALLOW_REBOOT`         | `true`                           | Whether `reboot_device` is honored                               |
-| `SIGNAGE_PLAYER_SERVICE`       | `signage-player.service`         | Unit restarted by `restart_player`                               |
-| `SIGNAGE_WATCHDOG`             | `on`                             | Playback liveness monitoring; `off` silences it entirely         |
-| `SIGNAGE_MAX_CACHE_GB`         | `8`                              | Media cache budget; also capped at 70% of the disk               |
-| `SIGNAGE_MIN_FREE_DISK_MB`     | `500`                            | Free space a sync will not eat into                              |
-| `SIGNAGE_CACHE_EVICTION`       | `false`                          | LRU eviction of unreferenced cached files (opt-in)               |
-| `SIGNAGE_CACHE_HASH_PER_PASS`  | `2`                              | Cached files fully re-hashed per integrity pass                  |
-| `SIGNAGE_LOG_LEVEL`            | `info`                           | Agent log level                                                  |
-| `SIGNAGE_KIOSK_GPU`            | `auto`                           | Chromium GPU backend: `auto` \| `vulkan` \| `gles` \| `software` |
-| `SIGNAGE_CHROMIUM_EXTRA_FLAGS` | (unset)                          | Extra space-separated flags appended to the kiosk Chromium       |
+| Key                            | Default                          | Purpose                                                           |
+| ------------------------------ | -------------------------------- | ----------------------------------------------------------------- |
+| `SIGNAGE_SERVER_URL`           | —                                | Backend base URL                                                  |
+| `SIGNAGE_PAIRING_CODE`         | —                                | Consumed once at first start; cleared after pairing               |
+| `SIGNAGE_DATA_DIR`             | `/var/lib/signage`               | SQLite DB, cached media, device token                             |
+| `SIGNAGE_PLAYER_PORT`          | `8080`                           | Local player server port (127.0.0.1)                              |
+| `SIGNAGE_PLAYER_UI_DIR`        | `/opt/signage/player-ui`         | Built player UI                                                   |
+| `SIGNAGE_SCREENSHOT_CMD`       | `/opt/signage/bin/screenshot.sh` | Used by `take_screenshot`                                         |
+| `SIGNAGE_UPDATE_CMD`           | `/opt/signage/bin/update.sh`     | Used by `software_update`                                         |
+| `SIGNAGE_UPDATE_URL`           | (unset)                          | Release tarball URL for self-update                               |
+| `SIGNAGE_ALLOW_REBOOT`         | `true`                           | Whether `reboot_device` is honored                                |
+| `SIGNAGE_PLAYER_SERVICE`       | `signage-player.service`         | Unit restarted by `restart_player`                                |
+| `SIGNAGE_WATCHDOG`             | `on`                             | Playback liveness monitoring; `off` silences it entirely          |
+| `SIGNAGE_MAX_CACHE_GB`         | `8`                              | Media cache budget; also capped at 70% of the disk                |
+| `SIGNAGE_MIN_FREE_DISK_MB`     | `500`                            | Free space a sync will not eat into                               |
+| `SIGNAGE_CACHE_EVICTION`       | `false`                          | LRU eviction of unreferenced cached files (opt-in)                |
+| `SIGNAGE_CACHE_HASH_PER_PASS`  | `2`                              | Cached files fully re-hashed per integrity pass                   |
+| `SIGNAGE_LOG_LEVEL`            | `info`                           | Agent log level                                                   |
+| `SIGNAGE_KIOSK_GPU`            | `auto`                           | Chromium GPU backend: `auto` \| `vulkan` \| `angle` \| `software` |
+| `SIGNAGE_CHROMIUM_EXTRA_FLAGS` | (unset)                          | Extra space-separated flags appended to the kiosk Chromium        |
 
 Edit with `signage config set KEY VALUE` (restarts the agent automatically).
 
@@ -76,8 +76,8 @@ backend per board (override with `SIGNAGE_KIOSK_GPU`):
   with **ANGLE-on-Vulkan**, which composites through the V3D GPU and eliminates
   the screen tearing that software compositing produces.
 - **Intel x86 thin clients (Chromebox and similar)** — auto-detected via the
-  `anv` Vulkan driver and run with **ANGLE-on-GLES**, the conservative
-  accelerated path. AMD (`radv`) maps the same way but is **unvalidated** — no
+  Intel Vulkan driver and run with **ANGLE on native desktop GL**
+  (`--use-angle=gl`). AMD (`radv`) maps the same way but is **unvalidated** — no
   AMD unit has been tested.
 - **ODROID C4 (Mali) and any board without a usable hardware Vulkan driver** —
   fall back to Chromium's **software** compositing. It always renders and never
@@ -89,10 +89,24 @@ unrecognised hardware is discoverable instead of just being slow.
 
 `auto` only selects an accelerated backend when a hardware (non-`lavapipe`)
 Vulkan driver is present, so a misdetect can't strand a screen. To experiment on
-other hardware, force a mode, e.g. `signage config set SIGNAGE_KIOSK_GPU gles`,
+other hardware, force a mode, e.g. `signage config set SIGNAGE_KIOSK_GPU angle`,
 then `signage restart-player` and check `signage player-logs` for repeated
 `Exiting GPU process` lines (= that backend doesn't work there; revert to
 `software`).
+
+**The logged GPU mode is what was requested, not what Chromium used.** Given a
+backend it cannot initialise, Chromium does not error and does not fall back —
+it sets `--use-gl=disabled` internally and composites in software, while the
+launcher's log line still reports the mode it asked for. Verify the outcome, not
+the request:
+
+```bash
+pgrep -af 'type=gpu-process' | grep -o 'use-gl=[a-z]*'   # 'disabled' means software
+sudo intel_gpu_top                                       # Intel: RCS must be non-zero
+```
+
+This is not hypothetical: `--use-angle=gles` did exactly that on a Chromebox and
+halved the machine's usable CPU while every log line looked correct.
 
 ### Hardware video decode (x86 only)
 
