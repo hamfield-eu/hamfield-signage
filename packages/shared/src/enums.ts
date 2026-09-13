@@ -158,9 +158,25 @@ export function suggestPlaybackProfile(info: string | null | undefined): Playbac
   const s = info.toLowerCase();
   // Weakest first: ODROID C4 / Amlogic boards need the light tier.
   if (s.includes('odroid') || s.includes('c4') || s.includes('amlogic')) return 'light';
-  // Strong players: Raspberry Pi 5 and x86 desktops can take the high tier.
-  if (s.includes('raspberry pi 5') || s.includes('x86_64') || s.includes('x64')) return 'high';
+
+  // Known thin clients, by their DMI product name. `sion` is the board name an
+  // Acer Chromebox CXI3 reports — a 2-core Celeron 3867U with 4 GB and an HD
+  // 610. It plays 1080p30 comfortably with hardware decode and has no business
+  // anywhere near the 60 fps tier.
+  if (s.includes('sion')) return 'standard';
+
+  if (s.includes('raspberry pi 5')) return 'high';
   if (s.includes('raspberry pi 4')) return 'standard';
+
+  // Bare `x86_64`/`x64` deliberately does NOT suggest `high` any more.
+  //
+  // It used to, on the reasoning that x86 means a desktop. The x86 devices this
+  // platform actually runs on are thin clients — and until the DMI fallback in
+  // the agent landed, every one of them reported exactly `Linux x64`, so the
+  // weakest hardware in the fleet was being recommended the heaviest tier
+  // (1080p60 at 9000 kbps). An architecture string says nothing about whether
+  // the machine is a Xeon or a 1.8 GHz Celeron; `standard` is the safe answer
+  // and an operator can raise it deliberately once a model is validated.
   return 'standard';
 }
 

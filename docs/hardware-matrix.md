@@ -13,7 +13,7 @@ difference between "we tested this" and "nobody looked".
 
 ```bash
 # On the device, before installing anything:
-sudo ./infra/device/preflight.sh
+./infra/device/preflight.sh   # no sudo needed
 ```
 
 It degrades gracefully on a bare Debian box — `vulkaninfo`, `vainfo` and
@@ -29,7 +29,7 @@ step actually showed.
 | -------------------- | ------ | ----------- | ------------ | ---- | --------------- |
 | Raspberry Pi 4/5     | ARM64  | Vulkan      | software     | —    | In production   |
 | ODROID-C4            | ARM64  | software    | software     | —    | In production   |
-| Acer Chromebox CXI3  | x86-64 | —           | —            | —    | **UNVALIDATED** |
+| Acer Chromebox CXI3  | x86-64 | expect gles | not yet      | —    | Preflight done  |
 | Chromebox (2nd unit) | x86-64 | —           | —            | —    | **UNVALIDATED** |
 
 > **Fleet-wide, as of 2026-09-13: nothing has hardware video decode.** No VA-API
@@ -65,32 +65,55 @@ arm of the driver `case` in `start-player.sh`. **Do not regress it.**
 | Video decode        | software (**UNVALIDATED**, as above)                                        |
 | Preflight           | not recorded — predates `preflight.sh`                                      |
 
-## Acer Chromebox CXI3
+## Acer Chromebox CXI3 (`hamfield-signage-1`)
 
-**UNVALIDATED — no preflight recorded.**
+**Preflight recorded 2026-09-13. Playback UNVALIDATED** — no VA-API driver
+installed yet, no flag matrix run, no soak.
 
-Run `preflight.sh` on the unit and paste the block here. Until then, nothing
-about this model is known: the review that produced T016 deliberately did not
-assert its CPU, GPU, storage size or firmware state.
+| Field                | Value                                                             |
+| -------------------- | ----------------------------------------------------------------- |
+| DMI vendor / product | `Google` / `Sion` (version `1.0`)                                 |
+| Firmware             | `coreboot MrChromebox-2606.1` — already reflashed                 |
+| Arch / kernel        | `x86_64` / `6.12.107+deb13-amd64`                                 |
+| OS                   | Debian GNU/Linux 13 (trixie)                                      |
+| CPU                  | Intel Celeron 3867U @ 1.80 GHz, **2 cores** (Kaby Lake)           |
+| RAM                  | **3.7 GB**                                                        |
+| Storage              | 29.8 GB total; `/` is 27.3 GB with 21 GB free                     |
+| GPU                  | Intel HD Graphics 610 `[8086:5906]` rev 07 (Gen9.5, GT1)          |
+| DRM driver           | `i915`, render node `/dev/dri/renderD128` present                 |
+| Display              | HDMI-A-1 at 1920x1080                                             |
+| Vulkan driver        | not installed yet — expect `anv` once `mesa-vulkan-drivers` lands |
+| VA-API driver        | **not installed**                                                 |
+| H.264 decode         | **not determined**                                                |
+| Chromium             | **not installed**                                                 |
+| Validated flags      | none — `SIGNAGE_CHROMIUM_EXTRA_FLAGS` unset                       |
+| Soak                 | not run                                                           |
 
-Two values from that output gate everything downstream:
+### What the numbers decide
 
-- **GPU generation** decides the VA-API driver — `intel-media-va-driver-non-free`
-  (Gen9+, `iHD`) or `i965-va-driver` (older). `va-driver-all` and letting libva
-  pick is the safe default when in doubt.
-- **eMMC size** sets `SIGNAGE_MAX_CACHE_GB`. Thin clients ship small internal
-  storage, which is the whole reason T017's disk guard is a hard prerequisite
-  for x86 production use.
+- **`intel-media-va-driver` (iHD) is the right driver.** Device `8086:5906` is
+  Kaby Lake GT1 — Gen9.5, which iHD supports. It is in Debian **main**, so no
+  `non-free` component is needed; the `-non-free` variant only adds codecs that
+  are not relevant to H.264 decode. `i965-va-driver` is the fallback if iHD
+  misbehaves on this generation.
+- **`auto` should resolve to `gles`.** The `i915` driver means Mesa's `anv`
+  Vulkan driver will be reported once `mesa-vulkan-drivers` is installed, and
+  the driver map added in T016 sends `anv` to `gles`. Before that change this
+  unit would have landed on `software` — see the note at the top of this file.
+- **`standard` is the playback tier, not `high`.** Two 1.8 GHz Celeron cores and
+  a GT1 iGPU: 1080p30 with hardware decode is comfortable, 1080p60 at 9000 kbps
+  is not. `suggestPlaybackProfile` recognises `Sion` explicitly for this reason.
+- **The default 8 GB cache budget fits.** 21 GB free against a 27.3 GB
+  filesystem: the 70% disk cap works out to ~19 GB, so the configured 8 GB is
+  what applies, leaving comfortable headroom. No `SIGNAGE_MAX_CACHE_GB` override
+  needed.
+- **3.7 GB RAM is the tightest number here.** Chromium plus X on 4 GB is the
+  constraint to watch during the soak, and `--disable-dev-shm-usage` is the
+  documented mitigation if renderer OOM crashes appear in `player-logs`.
 
-| Field               | Value                                                     |
-| ------------------- | --------------------------------------------------------- |
-| Preflight           | **not run**                                               |
-| `SIGNAGE_KIOSK_GPU` | expected `auto` → `gles` once an `anv` driver is detected |
-| VA-API driver       | **not determined**                                        |
-| H.264 decode        | **not determined**                                        |
-| Chromium version    | **not determined**                                        |
-| Validated flags     | none — `SIGNAGE_CHROMIUM_EXTRA_FLAGS` unset               |
-| Soak                | not run                                                   |
+**Hardware decode is not optional on this unit.** Software-decoding 1080p on two
+1.8 GHz cores leaves almost no headroom for compositing — this is the model that
+most needs VA-API working, and the one where it is easiest to measure.
 
 ## Chromebox — second unit
 
