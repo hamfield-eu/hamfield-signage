@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { SyncManifest } from '@signage/sync-protocol';
-import { computePlayerState, stateFingerprint } from './state';
+import {
+  VIDEO_CEILING_FALLBACK_SECONDS,
+  VIDEO_CEILING_SLACK_RATIO,
+  VIDEO_CEILING_SLACK_SECONDS,
+} from '@signage/shared';
+import { computePlayerState, stateFingerprint, videoCeilingSeconds } from './state';
 
 function manifest(overrides: Partial<SyncManifest> = {}): SyncManifest {
   return {
@@ -377,5 +382,102 @@ describe('stateFingerprint', () => {
 
     const offline = stateFingerprint(computePlayerState(manifest(), { ...ctx, online: false }));
     expect(offline).not.toBe(a);
+  });
+});
+
+// ---------------------------------------------------------------- T015 (F1)
+
+describe('videoCeilingSeconds', () => {
+  it('gives images no ceiling — they already advance on their own duration', () => {
+    expect(videoCeilingSeconds({ type: 'image', durationSeconds: null })).toBeNull();
+    expect(videoCeilingSeconds({ type: 'image', durationSeconds: 12 })).toBeNull();
+  });
+
+  it('adds slack so a video that runs slightly long is not cut off', () => {
+    const ceiling = videoCeilingSeconds({ type: 'video', durationSeconds: 30 });
+    expect(ceiling).toBe(Math.ceil(30 * VIDEO_CEILING_SLACK_RATIO + VIDEO_CEILING_SLACK_SECONDS));
+    // The point of the slack: the ceiling must be comfortably beyond the
+    // natural end, never at it.
+    expect(ceiling as number).toBeGreaterThan(30);
+  });
+
+  it('still gives very short clips usable room', () => {
+    // 1.25x of a 2 s clip is 2.5 s — without the absolute term the ceiling
+    // would fire during ordinary decode latency.
+    expect(videoCeilingSeconds({ type: 'video', durationSeconds: 2 })).toBeGreaterThan(10);
+  });
+
+  it('falls back to the ceiling when the duration is unknown', () => {
+    // No video item may ever have no timer, so an unprobed video gets the
+    // generous absolute ceiling rather than nothing.
+    expect(videoCeilingSeconds({ type: 'video', durationSeconds: null })).toBe(
+      VIDEO_CEILING_FALLBACK_SECONDS,
+    );
+    expect(videoCeilingSeconds({ type: 'video', durationSeconds: 0 })).toBe(
+      VIDEO_CEILING_FALLBACK_SECONDS,
+    );
+    expect(videoCeilingSeconds({ type: 'video', durationSeconds: -5 })).toBe(
+      VIDEO_CEILING_FALLBACK_SECONDS,
+    );
+  });
+});
+
+describe('maxDurationSeconds reaches the player', () => {
+  it('is set on playlist video items and left null on images', () => {
+    const state = computePlayerState(manifest(), {
+      paired: true,
+      online: true,
+      cachedMediaIds: allCached,
+    });
+    const [image, video] = state.items;
+    expect(image.maxDurationSeconds).toBeNull();
+    expect(video.maxDurationSeconds).toBe(
+      videoCeilingSeconds({ type: 'video', durationSeconds: 30 }),
+    );
+  });
+
+  it('is set on an emergency single video — the worst case for F1', () => {
+    // One looping video with no timer at all was the hang with the least
+    // telemetry, and an emergency override is exactly that shape.
+    const state = computePlayerState(
+      manifest({
+        emergency: {
+          active: true,
+          playlistId: null,
+          mediaAssetId: 'vid-1',
+          startedAt: '2026-01-01T00:00:00.000Z',
+        },
+      }),
+      { paired: true, online: true, cachedMediaIds: allCached },
+    );
+    expect(state.source).toBe('emergency');
+    expect(state.loop).toBe(true);
+    expect(state.items).toHaveLength(1);
+    expect(state.items[0].maxDurationSeconds).toBeGreaterThan(0);
+  });
+
+  it('is set on priority-rule items', () => {
+    const base = manifest();
+    const playlist = {
+      ...base.playlists[0],
+      playbackOrderMode: 'random_with_priority_rules' as const,
+      priorityRules: [
+        {
+          id: 'rule-1',
+          name: 'Sponsor',
+          intervalCount: 3,
+          selectionMode: 'random' as const,
+          position: 0,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          mediaIds: ['vid-1'],
+        },
+      ],
+    };
+    const state = computePlayerState(manifest({ playlists: [playlist] }), {
+      paired: true,
+      online: true,
+      cachedMediaIds: allCached,
+    });
+    expect(state.priorityRules[0].items[0].maxDurationSeconds).toBeGreaterThan(0);
   });
 });

@@ -1,11 +1,34 @@
 import { resolveActiveContent } from '@signage/scheduler';
 import {
+  VIDEO_CEILING_FALLBACK_SECONDS,
+  VIDEO_CEILING_SLACK_RATIO,
+  VIDEO_CEILING_SLACK_SECONDS,
   resolveDisplaySettings,
   type PlayerPriorityRule,
   type PlayerState,
   type PlayerStateItem,
 } from '@signage/shared';
 import { canonicalJson, type ManifestPlaylist, type SyncManifest } from '@signage/sync-protocol';
+
+/**
+ * Hard ceiling for a video item, in whole seconds.
+ *
+ * Computed here rather than in the player so it is unit-testable and so a
+ * device running an older player build still receives it. The probed duration
+ * is available on every manifest media entry (`applyProfileVariants` rewrites
+ * checksum/size/mime/width/height for the high and light tiers but leaves
+ * `durationSeconds` alone), so this costs nothing to produce.
+ *
+ * Returns null for images — they already advance on their own duration.
+ */
+export function videoCeilingSeconds(media: { type: string; durationSeconds: number | null }) {
+  if (media.type !== 'video') return null;
+  const probed = media.durationSeconds;
+  if (probed === null || !Number.isFinite(probed) || probed <= 0) {
+    return VIDEO_CEILING_FALLBACK_SECONDS;
+  }
+  return Math.ceil(probed * VIDEO_CEILING_SLACK_RATIO + VIDEO_CEILING_SLACK_SECONDS);
+}
 
 export interface StateContext {
   paired: boolean;
@@ -82,6 +105,7 @@ export function computePlayerState(
         mediaType: media.type,
         url: `/media/${media.id}`,
         durationSeconds: media.type === 'image' ? 86400 : null,
+        maxDurationSeconds: videoCeilingSeconds(media),
         fitMode: display.fitMode,
         backgroundColor: display.backgroundColor,
         positionMode: display.positionMode,
@@ -180,6 +204,7 @@ function buildPlaylistItems(
       durationSeconds:
         item.durationSeconds ??
         (media.type === 'image' ? playlist.defaultImageDurationSeconds : null),
+      maxDurationSeconds: videoCeilingSeconds(media),
       fitMode: display.fitMode,
       backgroundColor: display.backgroundColor,
       positionMode: display.positionMode,
@@ -218,6 +243,7 @@ function buildPriorityRules(
         mediaType: media.type,
         url: `/media/${media.id}`,
         durationSeconds: media.type === 'image' ? playlist.defaultImageDurationSeconds : null,
+        maxDurationSeconds: videoCeilingSeconds(media),
         fitMode: display.fitMode,
         backgroundColor: display.backgroundColor,
         positionMode: display.positionMode,

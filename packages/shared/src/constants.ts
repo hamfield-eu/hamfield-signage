@@ -43,3 +43,30 @@ export const ORG_LOGO_MAX_BYTES = 2 * 1024 * 1024;
 export const ORG_LOGO_MIME_TYPES = ['image/svg+xml', 'image/png', 'image/jpeg'] as const;
 /** `accept` attribute value for the logo file picker. */
 export const ORG_LOGO_ACCEPT = '.svg,.png,.jpg,.jpeg,image/svg+xml,image/png,image/jpeg';
+
+// ---------- Playback liveness (T015) ----------
+
+/**
+ * A video item is given a hard ceiling timer so playback always advances even
+ * when the element never fires `ended` — the F1 hang. The ceiling is the
+ * probed duration plus slack, never the probed duration itself: a video that
+ * decodes slightly slowly is healthy and must not be cut off.
+ */
+export const VIDEO_CEILING_SLACK_RATIO = 1.25;
+/** Absolute slack added on top of the ratio, so very short clips get room too. */
+export const VIDEO_CEILING_SLACK_SECONDS = 10;
+/**
+ * Ceiling used when the natural duration is unknown (ffprobe could not
+ * determine it). Generous on purpose — the rule is that no video item may ever
+ * have no timer, not that the timer must be tight.
+ */
+export const VIDEO_CEILING_FALLBACK_SECONDS = 1_800;
+
+/** How often the player reports playback progress to the agent. */
+export const PLAYER_PROGRESS_INTERVAL_MS = 5_000;
+/**
+ * Consecutive progress reports with a stationary `currentTime` that mean the
+ * video is wedged rather than merely buffering. `waiting`/`stalled` fire
+ * legitimately during buffering, so stagnation is the authority.
+ */
+export const PLAYER_STALL_REPORTS = 3;

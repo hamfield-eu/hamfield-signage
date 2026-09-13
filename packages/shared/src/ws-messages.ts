@@ -94,6 +94,15 @@ export interface PlayerStateItem {
   /** Local URL served by the agent, e.g. /media/<mediaId> */
   url: string;
   durationSeconds: number | null;
+  /**
+   * Hard ceiling, in seconds, after which the player abandons a video item
+   * even if it never fired `ended`. Videos only; null for images and for
+   * pre-T015 agents, where the player falls back to its own ceiling.
+   *
+   * Deliberately separate from `durationSeconds`: that field means "advance at
+   * exactly this time" and would truncate a video that runs slightly long.
+   */
+  maxDurationSeconds?: number | null;
   /** Resolved (effective) display settings — never null in player state. */
   fitMode: FitMode;
   backgroundColor: string;
@@ -173,4 +182,27 @@ export interface PlayerReadyMessage {
   type: 'player_ready';
 }
 
-export type PlayerToAgentMessage = PlayerPlaybackEventMessage | PlayerReadyMessage;
+/**
+ * Liveness, not telemetry. Sent on a steady interval while the player has
+ * something on screen, so the agent can tell "playing" from "wedged" — a
+ * stalled video emits no playback_event at all.
+ *
+ * The agent must NOT buffer these into `event_buffer`; they would flood its
+ * 5,000-row cap and push out real playback events.
+ */
+export interface PlayerProgressMessage {
+  type: 'player_progress';
+  itemId: string | null;
+  mediaId: string | null;
+  /** Video position in seconds; null for images and the fallback screen. */
+  currentTime: number | null;
+  /** False when `currentTime` has not moved since the previous report. */
+  advancing: boolean;
+  /** PlayerState.revision the player is currently rendering. */
+  revision: number;
+}
+
+export type PlayerToAgentMessage =
+  | PlayerPlaybackEventMessage
+  | PlayerReadyMessage
+  | PlayerProgressMessage;

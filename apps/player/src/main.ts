@@ -1,5 +1,9 @@
 import {
+  DEFAULT_IMAGE_DURATION_SECONDS,
+  PLAYER_PROGRESS_INTERVAL_MS,
+  PLAYER_STALL_REPORTS,
   PlaybackQueueEngine,
+  VIDEO_CEILING_FALLBACK_SECONDS,
   cssObjectPosition,
   flexAlignment,
   type AgentToPlayerMessage,
@@ -63,8 +67,10 @@ function sendEvent(
 
 // ---------------------------------------------------------------- playback
 
-const DEFAULT_IMAGE_DURATION = 10;
+const DEFAULT_IMAGE_DURATION = DEFAULT_IMAGE_DURATION_SECONDS;
 const ERROR_RETRY_DELAY_MS = 3_000;
+/** Ceiling for the exponential backoff on an item that keeps failing. */
+const MAX_ERROR_RETRY_DELAY_MS = 60_000;
 const PRELOAD_TIMEOUT_MS = 15_000;
 
 let state: PlayerState | null = null;
@@ -74,6 +80,39 @@ let index = 0;
 let activeLayer = 0;
 let advanceTimer: number | null = null;
 let playToken = 0;
+
+// ---------------------------------------------------------- liveness (T015)
+//
+// A video that decodes its first frame and then wedges fires neither `ended`
+// nor `error`, so before this the screen froze forever with no telemetry.
+// Two independent nets catch it, and every video item gets both:
+//
+//   * the ceiling timer — an absolute cap from the agent (`maxDurationSeconds`,
+//     the probed duration plus slack), re-armed on each loop of a looping video
+//   * stall detection — `timeupdate` stagnation across PLAYER_STALL_REPORTS
+//     progress reports, which fires much sooner on a long video
+//
+// `waiting`/`stalled` are deliberately not used as triggers: they fire during
+// ordinary buffering. Stagnation of `currentTime` is the authority.
+
+/** Absolute cap on the current video. Separate from `advanceTimer`, which owns
+ *  the normal "this item is done" transition — one timer, one owner. */
+let ceilingTimer: number | null = null;
+let activeVideo: HTMLVideoElement | null = null;
+/** Item currently on screen, for progress reports. */
+let activeReportItem: PlayerStateItem | null = null;
+/** currentTime at the previous progress report. */
+let lastReportedTime: number | null = null;
+/** Set by `timeupdate`; the primary evidence that decoding is alive. */
+let sawTimeUpdate = false;
+/** Previous `timeupdate` position, used to spot a loop wrap. */
+let lastTimeUpdateValue: number | null = null;
+let stationaryReports = 0;
+/** Consecutive progress reports showing real movement. */
+let advancingReports = 0;
+/** Consecutive error-driven advances; drives the retry backoff. */
+let errorStreak = 0;
+let lastFailedMediaId: string | null = null;
 
 // Random order modes: the agent ships the resolved pool + priority rules and
 // the player shuffles locally so reshuffles never need a state update.
@@ -131,6 +170,48 @@ function clearAdvanceTimer(): void {
     window.clearTimeout(advanceTimer);
     advanceTimer = null;
   }
+}
+
+function clearCeilingTimer(): void {
+  if (ceilingTimer !== null) {
+    window.clearTimeout(ceilingTimer);
+    ceilingTimer = null;
+  }
+}
+
+/** Detaches the current video from liveness tracking (fallback, teardown). */
+function detachVideo(): void {
+  clearCeilingTimer();
+  activeVideo = null;
+  activeReportItem = null;
+  lastReportedTime = null;
+  lastTimeUpdateValue = null;
+  sawTimeUpdate = false;
+  stationaryReports = 0;
+  advancingReports = 0;
+}
+
+/** Exponential backoff so an item that always fails cannot spin at 3 s and
+ *  flood the agent's bounded event buffer. */
+function retryDelayMs(): number {
+  const factor = 2 ** Math.max(0, errorStreak - 1);
+  return Math.min(ERROR_RETRY_DELAY_MS * factor, MAX_ERROR_RETRY_DELAY_MS);
+}
+
+/**
+ * Playback is demonstrably alive again: forget the failure history.
+ *
+ * Called only on evidence that the item actually *worked* — an image that
+ * rendered, a clean end, or sustained movement across progress reports. A
+ * single `timeupdate` is NOT such evidence: a corrupt stream that decodes one
+ * second and then wedges emits one, and resetting on it would pin the backoff
+ * at its 3 s floor forever, retrying roughly every 18 s and filling the agent's
+ * 5,000-row event buffer within a day. That is the exact flooding the backoff
+ * exists to prevent.
+ */
+function noteProgress(): void {
+  errorStreak = 0;
+  lastFailedMediaId = null;
 }
 
 function fitClass(item: PlayerStateItem): string {
@@ -220,12 +301,31 @@ function activeItem(): PlayerStateItem | null {
   return state.items[index] ?? null;
 }
 
+/**
+ * Records a playback failure and moves on immediately — the screen must never
+ * keep showing a frame that is not playing. The retry backoff is applied in
+ * `showCurrent`, so it throttles only the case where the very same media comes
+ * straight back (a one-item playlist or an emergency single video).
+ */
+function failCurrent(
+  item: PlayerStateItem,
+  playlistId: string | null,
+  play: { playedAs: 'normal' | 'priority'; priorityRuleId?: string } | null,
+  detail: Record<string, unknown>,
+): void {
+  errorStreak++;
+  lastFailedMediaId = item.mediaId;
+  sendEvent('error', item, playlistId, detail, play);
+  advance('error');
+}
+
 function advance(reason: 'end' | 'error'): void {
   if (!state) return;
 
   if (isRandomMode(state)) {
     const item = activeItem();
     if (item && reason === 'end') {
+      noteProgress();
       sendEvent('end', item, state.playlistId, undefined, currentPlay);
     }
     currentPlay = engine?.next() ?? null;
@@ -236,7 +336,10 @@ function advance(reason: 'end' | 'error'): void {
 
   if (state.items.length === 0) return;
   const item = state.items[index];
-  if (item && reason === 'end') sendEvent('end', item, state.playlistId);
+  if (item && reason === 'end') {
+    noteProgress();
+    sendEvent('end', item, state.playlistId);
+  }
 
   const last = index >= state.items.length - 1;
   if (last && !state.loop) {
@@ -245,6 +348,7 @@ function advance(reason: 'end' | 'error'): void {
     clearAdvanceTimer();
     if (item?.mediaType === 'video') {
       playToken++;
+      detachVideo();
       layerEls[activeLayer].classList.remove('visible');
       showFallback(true);
     }
@@ -260,24 +364,30 @@ async function showCurrent(): Promise<void> {
   if (!item) return;
   const token = ++playToken;
   clearAdvanceTimer();
+  detachVideo();
   currentItemId = item.id;
   const playlistId = state.playlistId;
   const play = isRandomMode(state) ? currentPlay : null;
   const single = !isRandomMode(state) && state.items.length === 1 && state.loop;
+
+  // The same media coming straight back after a failure means the playlist has
+  // nothing else to offer. Wait out the backoff before trying again rather than
+  // hammering it — the frame is already wrong either way, and a 3 s loop would
+  // fill the agent's bounded event buffer within the hour.
+  if (errorStreak > 0 && item.mediaId === lastFailedMediaId) {
+    const delay = retryDelayMs();
+    await new Promise<void>((r) => window.setTimeout(r, delay));
+    if (token !== playToken) return;
+  }
 
   let element: HTMLImageElement | HTMLVideoElement;
   try {
     element = await buildMediaElement(item);
   } catch (err) {
     if (token !== playToken) return;
-    sendEvent(
-      'error',
-      item,
-      playlistId,
-      { error: err instanceof Error ? err.message : String(err) },
-      play,
-    );
-    advanceTimer = window.setTimeout(() => advance('error'), ERROR_RETRY_DELAY_MS);
+    failCurrent(item, playlistId, play, {
+      error: err instanceof Error ? err.message : String(err),
+    });
     return;
   }
   if (token !== playToken) return;
@@ -289,32 +399,89 @@ async function showCurrent(): Promise<void> {
   if (state && isRandomMode(state)) rememberLastPlayed(item.mediaId);
 
   if (element instanceof HTMLVideoElement) {
+    const video = element;
+    activeVideo = video;
+    activeReportItem = item;
+    lastReportedTime = null;
+    sawTimeUpdate = false;
+    stationaryReports = 0;
+
     if (single) {
       // One looping video: let the element loop natively, no re-decode churn.
-      element.loop = true;
+      video.loop = true;
     } else {
-      element.onended = () => {
+      video.onended = () => {
         if (token === playToken) advance('end');
       };
     }
-    element.onerror = () => {
+    video.onerror = () => {
       if (token !== playToken) return;
-      sendEvent('error', item, playlistId, { error: 'video playback error' }, play);
-      advanceTimer = window.setTimeout(() => advance('error'), ERROR_RETRY_DELAY_MS);
+      failCurrent(item, playlistId, play, { error: 'video playback error' });
     };
-    element.play().catch(() => {
-      /* autoplay block should not happen with muted=true */
+    video.ontimeupdate = () => {
+      if (token !== playToken) return;
+      const now = video.currentTime;
+      // A jump backwards is the element looping; give the ceiling a fresh
+      // window so a healthy looping video is never cut off mid-iteration.
+      if (lastTimeUpdateValue !== null && now + 0.5 < lastTimeUpdateValue) {
+        armCeiling(item, playlistId, play, token);
+      }
+      lastTimeUpdateValue = now;
+      sawTimeUpdate = true;
+    };
+    video.play().catch(() => {
+      // Autoplay should not be blocked with muted=true. If it ever is,
+      // currentTime never moves and stall detection picks it up.
     });
+
+    // F1: this is the fix. Every video gets a ceiling, including the single
+    // looping case, which previously had no timer of any kind.
+    lastTimeUpdateValue = null;
+    armCeiling(item, playlistId, play, token);
+
     if (item.durationSeconds && item.durationSeconds > 0 && !single) {
+      // An operator-set per-item duration still owns the normal transition.
       scheduleAdvance(item.durationSeconds);
     }
-  } else if (!single) {
-    scheduleAdvance(item.durationSeconds ?? DEFAULT_IMAGE_DURATION);
+  } else {
+    noteProgress();
+    if (!single) scheduleAdvance(item.durationSeconds ?? DEFAULT_IMAGE_DURATION);
   }
+}
+
+/** (Re)arms the absolute cap for the video currently on screen. */
+function armCeiling(
+  item: PlayerStateItem,
+  playlistId: string | null,
+  play: { playedAs: 'normal' | 'priority'; priorityRuleId?: string } | null,
+  token: number,
+): void {
+  clearCeilingTimer();
+  const seconds =
+    item.maxDurationSeconds && item.maxDurationSeconds > 0
+      ? item.maxDurationSeconds
+      : VIDEO_CEILING_FALLBACK_SECONDS;
+  ceilingTimer = window.setTimeout(() => {
+    ceilingTimer = null;
+    if (token !== playToken) return;
+    failCurrent(item, playlistId, play, {
+      reason: 'stall_timeout',
+      ceilingSeconds: seconds,
+    });
+  }, seconds * 1000);
 }
 
 // ------------------------------------------------------------ state intake
 
+/**
+ * What counts as "the content changed" and therefore restarts playback.
+ *
+ * `maxDurationSeconds` is deliberately NOT part of this. It is a safety bound,
+ * not content: when the worker re-probes a video and the ceiling shifts by a
+ * second, the screen must not jump back to the first item. The agent's
+ * `stateFingerprint` does include it (it hashes the whole state), so a new
+ * revision still reaches the player — it just does not interrupt playback.
+ */
 function contentFingerprint(s: PlayerState): string {
   return JSON.stringify([
     s.items.map((i) => [
@@ -365,6 +532,7 @@ function applyState(next: PlayerState): void {
     currentPlay = null;
     engine = null;
     clearAdvanceTimer();
+    detachVideo();
     layerEls[0].classList.remove('visible');
     layerEls[1].classList.remove('visible');
     layerEls[0].replaceChildren();
@@ -411,6 +579,63 @@ window.setInterval(() => {
     second: '2-digit',
   });
 }, 1000);
+
+// ------------------------------------------------- progress + stall report
+
+/**
+ * Reports liveness to the agent on a steady interval, and decides whether the
+ * video on screen is wedged.
+ *
+ * `timeupdate` having fired since the last report is the primary signal —
+ * during buffering it stops, during playback it fires several times a second,
+ * and it also survives a looping video whose `currentTime` happens to land on
+ * the same value twice.
+ */
+function reportProgress(): void {
+  const video = activeVideo;
+  const item = activeReportItem;
+  const currentTime = video ? video.currentTime : null;
+  const advancing = video ? sawTimeUpdate || currentTime !== lastReportedTime : true;
+
+  send({
+    type: 'player_progress',
+    itemId: item?.id ?? null,
+    mediaId: item?.mediaId ?? null,
+    currentTime,
+    advancing,
+    revision: state?.revision ?? 0,
+  });
+
+  lastReportedTime = currentTime;
+  sawTimeUpdate = false;
+
+  if (!video || !item || !state) return;
+  if (video.ended) return;
+
+  if (advancing) {
+    stationaryReports = 0;
+    // Two consecutive moving reports (~10 s) is sustained playback, not the
+    // single frame a corrupt stream manages before it wedges.
+    if (++advancingReports >= 2) noteProgress();
+    return;
+  }
+  advancingReports = 0;
+  stationaryReports++;
+  if (stationaryReports < PLAYER_STALL_REPORTS) return;
+
+  // Wedged. Do not wait for the ceiling — on a long video that could be
+  // minutes of a frozen frame.
+  stationaryReports = 0;
+  const playlistId = state.playlistId;
+  const play = isRandomMode(state) ? currentPlay : null;
+  failCurrent(item, playlistId, play, {
+    reason: 'stall_timeout',
+    detectedBy: 'timeupdate_stagnation',
+    currentTime,
+  });
+}
+
+window.setInterval(reportProgress, PLAYER_PROGRESS_INTERVAL_MS);
 
 // --------------------------------------------------------------- identify
 

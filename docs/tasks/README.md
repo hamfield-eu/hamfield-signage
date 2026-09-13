@@ -49,6 +49,17 @@ no memory of the review. Same convention as `docs/todo-encoding-settings.md`.
 > so repair needed a forced sync. See "Outcome" in
 > [T017](T017-cache-integrity-and-disk-guard.md).
 >
+> **T015 status:** stages 1–2 are done (2026-09-10) — F1 is fixed in the repo:
+> every video item now carries a ceiling timer, including the single looping and
+> emergency cases that previously had no timer at all, and the player detects a
+> wedged decoder from `timeupdate` stagnation. `apps/player` gained vitest+jsdom
+> and an F1 regression test that was verified to fail against the old logic.
+> The **recovery ladder is deliberately not built**: its acceptance criterion is
+> a measured zero false-positive rate, and with no staging fleet that cannot be
+> measured before it would be rebooting customer-facing screens. Nothing has run
+> on a real device yet. See "Outcome" in
+> [T015](T015-player-watchdog-and-recovery.md).
+>
 > **T011 status:** nightly encrypted, verified, off-box backups are running on
 > `signage.hamfield.eu`, and DB↔storage reconciliation is implemented. The
 > fresh-VPS drill is **waived by the owner (2026-09-09)**; RTO is therefore

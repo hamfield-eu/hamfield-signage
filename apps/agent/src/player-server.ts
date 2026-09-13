@@ -4,7 +4,12 @@ import http from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import type { Logger } from 'pino';
 import { WebSocketServer, WebSocket } from 'ws';
-import type { AgentToPlayerMessage, PlayerState, PlayerToAgentMessage } from '@signage/shared';
+import type {
+  AgentToPlayerMessage,
+  PlayerProgressMessage,
+  PlayerState,
+  PlayerToAgentMessage,
+} from '@signage/shared';
 import type { AgentConfig } from './config';
 import type { AgentDb } from './db';
 import { stateFingerprint } from './state';
@@ -52,6 +57,12 @@ export class PlayerServer {
   private sockets = new Set<WebSocket>();
   private state: PlayerState;
   private fingerprint = '';
+  /** Epoch ms of the last player_progress message, or null if none yet. */
+  private lastProgressAt: number | null = null;
+  /** The last progress report, for diagnostics. */
+  private lastProgress: PlayerProgressMessage | null = null;
+  /** Epoch ms a player socket was last seen open. */
+  private lastSocketAt: number | null = null;
   /** Last LRU write per media id; see `noteCacheUse`. */
   private lastUseWrite = new Map<string, number>();
 
@@ -108,6 +119,28 @@ export class PlayerServer {
   }
 
   /**
+   * What the agent knows about the player being alive (T015).
+   *
+   * `progress` is the signal that matters: a wedged video keeps its socket open
+   * and emits no playback events, so socket presence alone proves nothing.
+   */
+  getLiveness(): {
+    connected: boolean;
+    socketCount: number;
+    lastSocketAt: number | null;
+    lastProgressAt: number | null;
+    advancing: boolean | null;
+  } {
+    return {
+      connected: this.sockets.size > 0,
+      socketCount: this.sockets.size,
+      lastSocketAt: this.sockets.size > 0 ? Date.now() : this.lastSocketAt,
+      lastProgressAt: this.lastProgressAt,
+      advancing: this.lastProgress?.advancing ?? null,
+    };
+  }
+
+  /**
    * Replaces the content-relevant part of the state; bumps the revision and
    * broadcasts only when the fingerprint actually changed.
    */
@@ -146,8 +179,13 @@ export class PlayerServer {
 
   private handleSocket(socket: WebSocket): void {
     this.sockets.add(socket);
-    socket.on('close', () => this.sockets.delete(socket));
-    socket.on('error', () => this.sockets.delete(socket));
+    this.lastSocketAt = Date.now();
+    const forget = () => {
+      this.sockets.delete(socket);
+      this.lastSocketAt = Date.now();
+    };
+    socket.on('close', forget);
+    socket.on('error', forget);
     socket.on('message', (raw) => {
       let message: PlayerToAgentMessage;
       try {
@@ -161,6 +199,12 @@ export class PlayerServer {
         );
       } else if (message.type === 'playback_event') {
         this.onPlaybackEvent(message);
+      } else if (message.type === 'player_progress') {
+        // Liveness, never telemetry: these arrive every few seconds and must
+        // not reach db.bufferEvent, whose 5,000-row cap would evict real
+        // playback events within the hour.
+        this.lastProgressAt = Date.now();
+        this.lastProgress = message;
       }
     });
     // Push the current state immediately so a reconnecting player recovers fast.

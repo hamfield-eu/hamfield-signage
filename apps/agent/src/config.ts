@@ -41,6 +41,16 @@ const configSchema = z.object({
     .transform((v) => v.toLowerCase() === 'true' || v.toLowerCase() === 'on'),
   /** Files re-hashed per verification pass; bounded to spare slow eMMC. */
   SIGNAGE_CACHE_HASH_PER_PASS: z.coerce.number().int().nonnegative().default(2),
+  /**
+   * Playback liveness monitoring. `off` disables it entirely, for debugging a
+   * device without the agent commenting on what you are doing to it.
+   * Today the monitor only observes and reports — it never restarts or reboots
+   * anything (see T015: the recovery ladder is deliberately not shipped).
+   */
+  SIGNAGE_WATCHDOG: z
+    .string()
+    .default('on')
+    .transform((v) => v.toLowerCase() !== 'off' && v.toLowerCase() !== 'false'),
   SIGNAGE_LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
   SIGNAGE_APP_VERSION: z.string().default('0.1.0'),
 });
@@ -59,6 +69,7 @@ export interface AgentConfig {
   updateCmd: string | null;
   allowReboot: boolean;
   playerService: string | null;
+  watchdog: boolean;
   maxCacheGb: number;
   minFreeDiskBytes: number;
   cacheEviction: boolean;
@@ -89,6 +100,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentConfig {
     updateCmd: parsed.SIGNAGE_UPDATE_CMD || null,
     allowReboot: parsed.SIGNAGE_ALLOW_REBOOT,
     playerService: parsed.SIGNAGE_PLAYER_SERVICE || null,
+    watchdog: parsed.SIGNAGE_WATCHDOG,
     maxCacheGb: parsed.SIGNAGE_MAX_CACHE_GB,
     minFreeDiskBytes: Math.round(parsed.SIGNAGE_MIN_FREE_DISK_MB * 1024 * 1024),
     cacheEviction: parsed.SIGNAGE_CACHE_EVICTION,

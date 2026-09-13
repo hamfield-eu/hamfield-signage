@@ -56,6 +56,7 @@ Flags:
 | `SIGNAGE_UPDATE_URL`           | (unset)                          | Release tarball URL for self-update                              |
 | `SIGNAGE_ALLOW_REBOOT`         | `true`                           | Whether `reboot_device` is honored                               |
 | `SIGNAGE_PLAYER_SERVICE`       | `signage-player.service`         | Unit restarted by `restart_player`                               |
+| `SIGNAGE_WATCHDOG`             | `on`                             | Playback liveness monitoring; `off` silences it entirely         |
 | `SIGNAGE_MAX_CACHE_GB`         | `8`                              | Media cache budget; also capped at 70% of the disk               |
 | `SIGNAGE_MIN_FREE_DISK_MB`     | `500`                            | Free space a sync will not eat into                              |
 | `SIGNAGE_CACHE_EVICTION`       | `false`                          | LRU eviction of unreferenced cached files (opt-in)               |

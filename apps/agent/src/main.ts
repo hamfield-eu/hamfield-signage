@@ -18,6 +18,12 @@ const HEARTBEAT_INTERVAL_MS = HEARTBEAT_INTERVAL_SECONDS * 1_000;
 const FLUSH_INTERVAL_MS = 60_000;
 const POLL_INTERVAL_MS = POLL_FALLBACK_INTERVAL_SECONDS * 1_000;
 const PAIR_RETRY_MS = 15_000;
+/** How often the liveness monitor evaluates the player (T015). */
+const LIVENESS_INTERVAL_MS = 10_000;
+/** A player socket may be absent this long before it is worth reporting. */
+const PLAYER_SOCKET_GRACE_MS = 30_000;
+/** Progress may be absent this long before playback counts as stalled. */
+const PROGRESS_GRACE_MS = 90_000;
 /** How long after the last successful HTTP call we still count as online. */
 const HTTP_ONLINE_WINDOW_MS = 90_000;
 
@@ -74,6 +80,10 @@ export async function startAgent(env: NodeJS.ProcessEnv = process.env): Promise<
     if (event.eventType === 'start') {
       position.currentMediaId = event.mediaId;
       position.currentPlaylistId = event.playlistId;
+      // D10: an item is rendering again, so the previous failure is history.
+      // Before this, lastError was set once and never cleared, and the
+      // dashboard showed a stale error as if it were current.
+      lastError = null;
       backend?.sendStatus({ ...position, manifestVersion: db.getManifestVersion() });
     } else if (event.eventType === 'error') {
       lastError = `playback error on media ${event.mediaId}`;
@@ -98,6 +108,76 @@ export async function startAgent(env: NodeJS.ProcessEnv = process.env): Promise<
   };
 
   const sync = new SyncEngine(config, db, api, log, () => recomputeState());
+
+  // ---------------------------------------------------------- liveness (T015)
+  //
+  // Before this, nothing anywhere noticed a dead or wedged player: a stalled
+  // video keeps its websocket open, changes no state fingerprint and emits no
+  // playback event, so the screen could sit frozen indefinitely in silence.
+  //
+  // This observes and reports. It deliberately does NOT restart the player or
+  // reboot the device — that recovery ladder is the rest of T015 and needs a
+  // measured false-positive rate before it can be trusted with a customer's
+  // screen. Reports reach the server through the existing buffered device-log
+  // path, so they survive the device being offline.
+  type LivenessProblem = 'player_disconnected' | 'playback_stalled';
+  let livenessProblem: LivenessProblem | null = null;
+  let livenessSince = Date.now();
+
+  const evaluateLiveness = (): void => {
+    if (!config.watchdog) return;
+    const now = Date.now();
+    const state = playerServer.getState();
+    const hasContent =
+      state.items.length > 0 || (state.priorityRules ?? []).some((r) => r.items.length > 0);
+
+    // A device that is legitimately idle — unpaired, empty schedule, or having
+    // its media replaced underneath the player — is healthy, not stalled.
+    if (!paired || !hasContent || sync.isSyncing()) {
+      if (livenessProblem) {
+        log.info({ was: livenessProblem }, 'player liveness: no longer applicable');
+        livenessProblem = null;
+      }
+      livenessSince = now;
+      return;
+    }
+
+    const liveness = playerServer.getLiveness();
+    let problem: LivenessProblem | null = null;
+    if (!liveness.connected) {
+      const since = liveness.lastSocketAt ?? livenessSince;
+      if (now - since > PLAYER_SOCKET_GRACE_MS) problem = 'player_disconnected';
+    } else if (liveness.lastProgressAt !== null) {
+      if (now - liveness.lastProgressAt > PROGRESS_GRACE_MS) problem = 'playback_stalled';
+    }
+    // A connected player that has never reported progress is running a
+    // pre-T015 build; treat it as healthy rather than accusing every device
+    // that has not been updated yet.
+
+    if (problem === livenessProblem) return;
+
+    if (problem) {
+      const context = {
+        problem,
+        playerConnected: liveness.connected,
+        lastProgressAgeSeconds:
+          liveness.lastProgressAt === null
+            ? null
+            : Math.round((now - liveness.lastProgressAt) / 1000),
+        playlistId: state.playlistId,
+        currentMediaId: position.currentMediaId,
+      };
+      log.warn(context, 'player liveness problem detected');
+      db.bufferLog('warn', `player liveness: ${problem}`, context);
+    } else {
+      const context = { recoveredFrom: livenessProblem };
+      log.info(context, 'player liveness recovered');
+      db.bufferLog('info', 'player liveness: recovered', context);
+      lastError = null;
+    }
+    livenessProblem = problem;
+    livenessSince = now;
+  };
 
   const flushBuffers = async (): Promise<{ logs: number; events: number }> => {
     let sentLogs = 0;
@@ -253,6 +333,7 @@ export async function startAgent(env: NodeJS.ProcessEnv = process.env): Promise<
       ),
     );
     timers.push(setInterval(() => void pollFallback(), POLL_INTERVAL_MS));
+    timers.push(setInterval(evaluateLiveness, LIVENESS_INTERVAL_MS));
   })().catch((err) => log.error({ err }, 'agent startup failed'));
 
   log.info(
