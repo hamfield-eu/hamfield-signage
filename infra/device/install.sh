@@ -275,31 +275,18 @@ allowed_users=anybody
 needs_root_rights=yes
 EOF
 
-  # Tearing: without TearFree, page flips are not synchronised to vblank and
-  # horizontal shear is visible on any horizontal motion — which on a signage
-  # screen is most video. Chromium cannot fix this from its side; the flip
-  # happens below it, in the X driver.
+  # NOT configuring TearFree here, deliberately.
   #
-  # Intel only, and only when the i915 kernel driver is bound. The `modesetting`
-  # driver is Xorg's default for Intel on modern distributions and is the one
-  # that carries this option; writing it for non-Intel hardware would at best do
-  # nothing and at worst pin a wrong driver.
-  if [ "$(uname -m)" = "x86_64" ] && [ -d /sys/module/i915 ]; then
-    log "Enabling TearFree on the Intel display driver"
-    mkdir -p /etc/X11/xorg.conf.d
-    cat > /etc/X11/xorg.conf.d/20-signage-intel.conf <<EOF
-# Installed by signage install.sh. Remove this file and restart
-# signage-player to revert.
-#
-# TearFree makes the driver flip on vblank instead of mid-scanout. Costs a
-# little GPU bandwidth; removes horizontal shear during motion.
-Section "Device"
-  Identifier "Intel Graphics"
-  Driver     "modesetting"
-  Option     "TearFree" "true"
-EndSection
-EOF
-  fi
+  # It is the textbook fix for horizontal shear, but Debian 13's `modesetting`
+  # driver does not implement it. Setting it produces exactly one effect:
+  #
+  #   (WW) modeset(0): Option "TearFree" is not used
+  #
+  # Measured on an Acer Chromebox CXI3 with glamor on Mesa Intel HD 610. The
+  # option that would work lives in xf86-video-intel, which Intel deprecates for
+  # Gen9+ and which is a poor bet on a screen that must run unattended for
+  # months. See docs/hardware-matrix.md.
+
 fi
 
 log "Installing systemd services"

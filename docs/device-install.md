@@ -229,10 +229,18 @@ avoids it entirely, and is the recommended base for a signage device.
 
 ### Tearing
 
-Without vsync at the X level, page flips happen mid-scanout and horizontal
-motion shears. On x86 with the `i915` driver the installer writes
-`/etc/X11/xorg.conf.d/20-signage-intel.conf` enabling `TearFree` on the
-`modesetting` driver.
+Moving compositing onto the GPU (see above) removes most of it. A faint residual
+artifact during motion may remain.
 
-Remove that file and restart `signage-player` to revert. Chromium flags cannot
-fix this — the flip happens below the browser, in the display driver.
+**`TearFree` does not work on Debian 13 and is not configured.** It is the
+textbook fix, but this Xorg's `modesetting` driver does not implement the
+option — setting it yields only:
+
+```
+(WW) modeset(0): Option "TearFree" is not used
+```
+
+The driver that does implement it, `xf86-video-intel`, is deprecated by Intel
+for Gen9 and newer and is not a good bet on an unattended screen. If you try it
+anyway, verify with `grep -i tearfree /var/log/Xorg.0.log` — a config file that
+Xorg ignores looks identical to one that works.

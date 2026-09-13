@@ -153,9 +153,15 @@ not have been.
 
 ### Open
 
-- **Tearing.** Reduced but still visible as occasional horizontal lag. Not a
-  Chromium flag — the fix is `Option "TearFree" "true"` on the Intel X driver.
-  Untested.
+- **Tearing — no fix available, tested.** Largely resolved by moving compositing
+  to the GPU; a faint residual artifact remains during motion. `TearFree` was
+  tried and **does not work**: Debian 13's `modesetting` driver does not
+  implement the option and logs `(WW) modeset(0): Option "TearFree" is not
+used`. The driver that does implement it (`xf86-video-intel`) is deprecated by
+  Intel for Gen9+ and was not pursued for an unattended screen. The residual
+  artifact may not be tearing at all — 30 fps content on a 60 Hz panel, or
+  software decode missing an occasional deadline on a 1.8 GHz core, would both
+  look similar and neither is fixable in X.
 - **72-hour soak.** Not run. 3.7 GB RAM is the number to watch.
 
 ## Chromebox — second unit
