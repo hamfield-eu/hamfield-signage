@@ -1,12 +1,12 @@
 # T018 — API authorization and regression test foundation
 
-| | |
-|---|---|
-| **Estimate** | M–L |
-| **Risk** | Low — adds tests only, changes no application behaviour. The risk is what the tests *find* |
-| **Depends on** | T010 (so the production topology is settled). **Can start in parallel with T012/T013.** |
-| **Blocks** | Customer use. A cross-tenant leak in a multi-tenant product is existential |
-| **Status** | Not started |
+|                |                                                                                                                                                                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Estimate**   | M–L                                                                                                                                                                                                                            |
+| **Risk**       | Low — adds tests only, changes no application behaviour. The risk is what the tests _find_                                                                                                                                     |
+| **Depends on** | T010 (so the production topology is settled). **Can start in parallel with T012/T013.**                                                                                                                                        |
+| **Blocks**     | Customer use. A cross-tenant leak in a multi-tenant product is existential                                                                                                                                                     |
+| **Status**     | **Done (2026-09-13), with the E2E path deliberately declined.** 219 integration tests against a real Postgres and Redis; no authorization hole found, and both predicted bugs turned out to be safe. See "Outcome" at the end. |
 
 > Self-contained by design: a fresh Claude Code session has no memory of the
 > review that produced this file.
@@ -27,20 +27,20 @@ bug is unrecoverable.
 
 ## Context from the review report
 
-### Current coverage *(F14 — Medium-High, CONFIRMED)*
+### Current coverage _(F14 — Medium-High, CONFIRMED)_
 
 Twelve test files, ~1,900 lines, **all pure unit tests**:
 
-| Package | Files | Assessment |
-|---|---|---|
-| `packages/scheduler` | `resolve.test.ts` (222 L) | Window matching, overnight wrap, DST, precedence. **Good.** |
-| `packages/shared` | `playback-queue.test.ts` (219 L), `display.test.ts`, `schemas-display.test.ts` | Queue engine, display resolution. **Good.** |
-| `packages/sync-protocol` | `manifest.test.ts` (209 L) | Canonical hashing, diffing. **Good.** |
-| `packages/media` | `media.test.ts` (191 L), `logo.test.ts` | Sniffing, sanitisation, probe interpretation. **Good.** |
-| `apps/agent` | `state.test.ts` (381 L), `sync.test.ts` (230 L) | Player state, sync guarantees. **Good.** |
-| `apps/api` | `playlist-resolver.test.ts`, `tokens.test.ts`, `media-variant.test.ts` | **All under `src/lib/` — pure functions only.** |
-| `apps/worker` | none | `"test": "vitest run --passWithNoTests"` |
-| `apps/web`, `apps/player` | none | `"test": "echo \"no tests\""` |
+| Package                   | Files                                                                          | Assessment                                                  |
+| ------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `packages/scheduler`      | `resolve.test.ts` (222 L)                                                      | Window matching, overnight wrap, DST, precedence. **Good.** |
+| `packages/shared`         | `playback-queue.test.ts` (219 L), `display.test.ts`, `schemas-display.test.ts` | Queue engine, display resolution. **Good.**                 |
+| `packages/sync-protocol`  | `manifest.test.ts` (209 L)                                                     | Canonical hashing, diffing. **Good.**                       |
+| `packages/media`          | `media.test.ts` (191 L), `logo.test.ts`                                        | Sniffing, sanitisation, probe interpretation. **Good.**     |
+| `apps/agent`              | `state.test.ts` (381 L), `sync.test.ts` (230 L)                                | Player state, sync guarantees. **Good.**                    |
+| `apps/api`                | `playlist-resolver.test.ts`, `tokens.test.ts`, `media-variant.test.ts`         | **All under `src/lib/` — pure functions only.**             |
+| `apps/worker`             | none                                                                           | `"test": "vitest run --passWithNoTests"`                    |
+| `apps/web`, `apps/player` | none                                                                           | `"test": "echo \"no tests\""`                               |
 
 **No route handler has ever been exercised by a test.** No authorization boundary
 is verified. No migration is validated. No media job is run. No browser code is
@@ -82,6 +82,7 @@ The authorization model is non-trivial and therefore worth testing:
 ## Files likely involved
 
 **Create:**
+
 - `apps/api/vitest.config.ts` — integration test setup, longer timeouts
 - `apps/api/src/test/helpers.ts` — build the app with a test DB, seed fixtures,
   mint tokens for each role
@@ -97,11 +98,13 @@ The authorization model is non-trivial and therefore worth testing:
 - `docs/testing.md` — how to run the suites, what needs Docker
 
 **Edit:**
+
 - `apps/api/package.json` — split `test` (unit) and `test:integration`
 - `apps/player/package.json` — replace `"test": "echo \"no tests\""`
 - `packages/database/package.json` — a `migrate:check` script
 
 **Read-only reference:**
+
 - `apps/api/src/server.ts` — `buildServer({ prisma, logger })` already accepts an
   injected Prisma client and a logger toggle. **This is exactly the seam a test
   harness needs** — the app is already testable, nobody has used it.
@@ -113,7 +116,7 @@ The authorization model is non-trivial and therefore worth testing:
 
 ## Non-goals
 
-- A coverage percentage target. Target the *risk*, not the number.
+- A coverage percentage target. Target the _risk_, not the number.
 - Testing the dashboard UI (React component tests). Valuable later; not the
   minimum bar.
 - Load or performance testing.
@@ -133,7 +136,7 @@ Decide the database strategy first — it shapes everything:
 - **Preferred: Testcontainers** (`@testcontainers/postgresql`). Real Postgres,
   real migrations, real constraints, disposable. Requires Docker in CI.
 - Alternative: a dedicated test database on a local Postgres, reset per run.
-- **Do not mock Prisma.** Most of what needs testing here *is* the query
+- **Do not mock Prisma.** Most of what needs testing here _is_ the query
   predicates (`deletedAt: null`, org scoping, `skipDuplicates`), and a mock
   asserts nothing about them.
 
@@ -156,21 +159,21 @@ Fastify pipeline including `preHandler` hooks and the error handler.
 Enumerate every registered route (there are 13 route modules in
 `apps/api/src/server.ts`) and assert the status code for each caller:
 
-| Caller | Expectation |
-|---|---|
-| no token | 401 |
-| malformed / expired token | 401 |
-| `viewer` in the org | 200 on reads, 403 on writes |
-| `editor` | 200 on content writes, 403 on admin actions |
-| `admin` | 200 on admin actions, 403 on owner-only if any |
-| `owner` | 200 |
-| **member of a different org** | 403/404 — **never 200** |
-| non-member, non-superadmin | 403 |
-| `superadmin` (no membership) | 200 — treated as `owner` |
-| disabled user | 403 |
-| member of a **disabled org** | 403 |
-| superadmin in a disabled org | 200 |
-| member of a **soft-deleted org** | 403 |
+| Caller                           | Expectation                                    |
+| -------------------------------- | ---------------------------------------------- |
+| no token                         | 401                                            |
+| malformed / expired token        | 401                                            |
+| `viewer` in the org              | 200 on reads, 403 on writes                    |
+| `editor`                         | 200 on content writes, 403 on admin actions    |
+| `admin`                          | 200 on admin actions, 403 on owner-only if any |
+| `owner`                          | 200                                            |
+| **member of a different org**    | 403/404 — **never 200**                        |
+| non-member, non-superadmin       | 403                                            |
+| `superadmin` (no membership)     | 200 — treated as `owner`                       |
+| disabled user                    | 403                                            |
+| member of a **disabled org**     | 403                                            |
+| superadmin in a disabled org     | 200                                            |
+| member of a **soft-deleted org** | 403                                            |
 
 Write it as a **data-driven table**, one row per route, so adding a route without
 adding a row is visible in review. Include the specific minimum roles the code
@@ -208,7 +211,7 @@ Two specific traps worth explicit tests:
 - `POST /orgs/:orgId/devices/:deviceId/commands` (`routes/devices.ts:215`)
   mutates device state for `set_playlist` / `set_orientation` / `update_settings`
   **before** creating the command row — assert a cross-org `playlistId` is
-  rejected *before* any mutation happens.
+  rejected _before_ any mutation happens.
 
 ### 4. Device token authorization
 
@@ -356,7 +359,7 @@ layers, not exhaustive coverage.
 
 ## Testing checklist
 
-*(This task is tests. The checklist is about testing the tests.)*
+_(This task is tests. The checklist is about testing the tests.)_
 
 - [ ] Confirm each test fails when the behaviour it guards is deliberately
       broken — comment out a `requireOrgRole` call and confirm the matrix goes
@@ -392,3 +395,154 @@ layers, not exhaustive coverage.
   suite worthless for its stated purpose.
 - Keep integration tests out of the default `pnpm test` if they slow the inner
   loop, but make sure CI runs both. A suite developers skip is a suite that rots.
+
+---
+
+## Outcome (2026-09-13)
+
+Built in five commits. **219 integration tests** against a real Postgres and
+Redis, plus 17 new player tests and the false-green test scripts fixed. Every
+suite below was executed here unless marked otherwise.
+
+### The headline finding: there wasn't one
+
+The task file predicted the tests would find real bugs, and named two likely
+candidates. Both turned out to be **safe**:
+
+- `PATCH /orgs/:orgId` really does call `prisma.organization.update` with no
+  `deletedAt: null` guard — but `requireOrgRole` rejects a soft-deleted
+  organization for members and superadmins alike, so the handler is unreachable.
+  Pinned with a test that asserts both the 403 and that the row is untouched,
+  because that safety is not evident from reading the handler.
+- `POST /orgs/:orgId/devices/:deviceId/commands` really does mutate device state
+  before creating the command row — but `set_playlist` scopes its playlist
+  lookup by `organizationId`, so a cross-org id is rejected before anything
+  changes. Asserted on the status, the device row and the command count.
+
+Across 79 routes × up to 12 caller types and every cross-tenant probe the route table
+can generate, **no authorization hole was found**. That is the result, and it is
+worth more than a bug would have been: the boundary was correct all along and is
+now held in place by tests.
+
+### VERIFIED — ran here, repeatedly
+
+**1. The harness.** Testcontainers `postgres:16-alpine` + `redis:7-alpine`,
+`prisma migrate deploy` from scratch, `buildServer({ prisma, logger: false })`,
+`app.inject()` throughout. Prisma is not mocked. Two complete organizations, A
+and B, seeded identically so that every id in B is a probe.
+
+Two things the harness had to get right to avoid **inventing** bugs, both found
+and fixed during the build:
+
+- Workspace packages resolve to their TypeScript sources. Their `dist/` is
+  CommonJS while Vite serves `apps/api` as ESM, so the two halves loaded
+  separate copies of zod, `err instanceof ZodError` was false for every schema
+  defined in `@signage/shared`, and **every validation failure appeared as a 500
+  instead of a 400** — under test only. Production compiles both sides to
+  CommonJS against one zod. Two "findings" evaporated when this was fixed; they
+  were never real.
+- Every request is injected from a unique source address. The global rate limit
+  is 300/minute keyed by `req.ip` and the matrix alone is ~900 requests; a 429
+  reads exactly like an authorization failure.
+
+**2. The route × role matrix.** All 79 org-scoped, platform and auth routes ×
+twelve caller types. Asserts the _category_ — denied is exactly 401/403 — rather
+than pinning success codes, which would be brittle without being stricter. A
+completeness test reconstructs full paths from Fastify's own route tree and
+fails if a registered route has no row.
+
+**3. Cross-tenant isolation**, mostly generated rather than written: the route
+table's URL builder takes the id-supplying org separately from the org in the
+path, so every present and future row gets a probe for free. Plus list-leak
+tests and the ids that arrive in bodies rather than paths.
+
+**4. Device tokens**: revocation, soft-deleted devices, `?token=` alongside the
+header, user JWTs rejected, manifest scope, media outside the manifest, and
+another device's commands and events. The 30-second `allowedMediaIdsForDevice`
+cache is documented by a test rather than left to be rediscovered.
+
+**5. Pairing**: 20 simultaneous claims of one code yield exactly one 201 and
+exactly one token row. Expiry does not consume the code. Only the SHA-256 is
+stored.
+
+**6. Playback event dedup**: identical and overlapping batches proven not to
+double count; null `clientEventId` asserted as deliberately un-deduped.
+
+**7. Manifest**: determinism across consecutive builds, a different version for
+each of the five listed mutations, `generatedAt` proven not to feed the hash,
+and per-device tiers end to end.
+
+**8. Migration drift**: `prisma migrate diff` against a database built by
+replaying the whole chain.
+
+**9. The tests can fail.** Five mutations, each restored immediately:
+
+| Mutation                                     | Caught by                 |
+| -------------------------------------------- | ------------------------- |
+| Comment out one `requireOrgRole`             | The matrix, on that route |
+| Drop `organizationId` from one device lookup | Ten cross-tenant tests    |
+| `skipDuplicates: false`                      | The dedup tests           |
+| An unmigrated `schema.prisma` column         | The drift check           |
+| Remove the player's stale-`playToken` guard  | The playToken test        |
+
+**10. Not flaky.** Ten consecutive runs of the integration suite, all green.
+
+**11. Runtime.** Unit suite well under 30 s; integration ~80 s, against the
+"ideally under 5 min" target.
+
+**12. Player** (T018 §9): the six watchdog behaviours landed with T015; this
+task adds the three that were missing — fit mode × rotation reaching the DOM,
+a mid-item state update preserving position in `manual_order` and rebuilding the
+shuffle in random modes, and `playToken` invalidation preventing two concurrent
+playbacks. 29 player tests total (12 from T015, 17 added here).
+
+**13. No more false green.** `apps/web`, `packages/database` and
+`apps/mock-device` ran `echo "no tests"`, which exits 0 and is indistinguishable
+from a suite that passed. They now run `vitest run --passWithNoTests`, which
+reports an empty suite.
+
+### UNVERIFIED
+
+- **`.github/workflows/ci.yml` has never run.** There was no `.github` directory
+  and no runner available here. It was written from the commands actually
+  executed locally: a Docker-free unit job and an integration job. Treat its
+  first run as part of the review.
+- **The Node 22 pin.** `apps/agent`'s SQLite tests fail on Node 24 because
+  `better-sqlite3@11.10.0` has no prebuilt binding for that ABI and there is no
+  C++ toolchain here to build one. CI pins Node 22 on the reasoning that a
+  prebuild exists there — no Node 22 is installed on this machine, so that is
+  inferred, not observed.
+
+### NOT implemented — deliberately
+
+- **The mock-device E2E path (§10).** Its second step is "upload an image, poll
+  until `ready`", which needs MinIO _and_ a running worker with ffmpeg. Standing
+  both up is a larger build than everything above, and its stated value —
+  catching wiring breakage between layers — is substantially covered already:
+  pairing → token → sync → manifest → media authorization runs end to end
+  through the real pipeline, missing only S3 and the browser. Worth doing when
+  there is a reason to stand up the full stack in CI anyway. **The acceptance
+  box stays unticked.**
+- **The v1 backwards-compatibility assertion (§6, last bullet).** It tests
+  `apps/agent`'s state builder, whose suite cannot execute in this environment
+  for the `better-sqlite3` reason above. It belongs with the agent tests, not
+  bolted into the API suite.
+- **S3-dependent routes beyond authorization.** `POST /orgs/:orgId/media` and
+  the org logo upload are exercised for the role check only; neither multipart
+  upload nor object storage is stood up.
+- **`/device/ws`.** The WebSocket upgrade is excluded from the matrix. Its
+  credential path — `?token=` — is covered by `device-auth.test.ts` against the
+  HTTP routes, which is the part that matters for authorization.
+- **React component tests**, load testing, and a coverage target — all named as
+  non-goals in this task, and still are.
+
+### Notes for whoever picks this up
+
+- **`route-table.ts` is the single list of routes.** Add a route without adding
+  a row and the completeness test fails. That is the mechanism that keeps this
+  suite honest as the API grows; do not work around it.
+- **Do not let `pnpm test` acquire a Docker dependency.** The split exists so
+  the inner loop stays fast.
+- The integration suite truncates between tests and re-seeds before each route
+  in the matrix, which is why it can call DELETE routes as an allowed caller
+  without poisoning the next test.

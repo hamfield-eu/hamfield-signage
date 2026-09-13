@@ -20,17 +20,17 @@ no memory of the review. Same convention as `docs/todo-encoding-settings.md`.
    └────► T017            production x86 use)
 ```
 
-| # | Task | Why now | Est. | Risk |
-|---|---|---|---|---|
-| **T010** | [Production deployment baseline](T010-production-deployment-baseline.md) | Nothing else matters until it runs on a VPS | M | Medium |
-| **T011** | [Backup, restore and upgrade path](T011-backup-restore-and-upgrade-path.md) | **The task that prevents losing the product.** Must be *drilled*, not just written | M | High |
-| **T012** | [Production security hardening](T012-production-security-hardening.md) | Required before any external customer touches it | M | Medium |
-| **T013** | [Healthchecks, logging, retention](T013-healthchecks-logging-and-retention.md) | Telemetry grows ~1.1M rows/day at 100 devices with no pruning today | M | Medium |
-| **T014** | [Release process and runbook](T014-release-process-and-production-runbook.md) | Captures T010–T013 as an operable procedure | S–M | Low to write, High if wrong |
-| **T015** | [Player watchdog and recovery](T015-player-watchdog-and-recovery.md) | Fixes the confirmed "stalled video freezes the screen forever" hang | M | Medium-High |
-| **T016** | [Chromebox x86 player profile](T016-chromebox-x86-player-profile.md) | x86 is software-decoding today; auto-detect excludes Intel by construction | M | Medium |
-| **T017** | [Cache integrity and disk guard](T017-cache-integrity-and-disk-guard.md) | Corrupt cache and full disk are both permanent, unrecoverable states | M | Medium |
-| **T018** | [API authorization and regression tests](T018-api-authorization-and-regression-tests.md) | No route handler has ever been exercised by a test | M–L | Low |
+| #        | Task                                                                                     | Why now                                                                            | Est. | Risk                        |
+| -------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | ---- | --------------------------- |
+| **T010** | [Production deployment baseline](T010-production-deployment-baseline.md)                 | Nothing else matters until it runs on a VPS                                        | M    | Medium                      |
+| **T011** | [Backup, restore and upgrade path](T011-backup-restore-and-upgrade-path.md)              | **The task that prevents losing the product.** Must be _drilled_, not just written | M    | High                        |
+| **T012** | [Production security hardening](T012-production-security-hardening.md)                   | Required before any external customer touches it                                   | M    | Medium                      |
+| **T013** | [Healthchecks, logging, retention](T013-healthchecks-logging-and-retention.md)           | Telemetry grows ~1.1M rows/day at 100 devices with no pruning today                | M    | Medium                      |
+| **T014** | [Release process and runbook](T014-release-process-and-production-runbook.md)            | Captures T010–T013 as an operable procedure                                        | S–M  | Low to write, High if wrong |
+| **T015** | [Player watchdog and recovery](T015-player-watchdog-and-recovery.md)                     | Fixes the confirmed "stalled video freezes the screen forever" hang                | M    | Medium-High                 |
+| **T016** | [Chromebox x86 player profile](T016-chromebox-x86-player-profile.md)                     | x86 is software-decoding today; auto-detect excludes Intel by construction         | M    | Medium                      |
+| **T017** | [Cache integrity and disk guard](T017-cache-integrity-and-disk-guard.md)                 | Corrupt cache and full disk are both permanent, unrecoverable states               | M    | Medium                      |
+| **T018** | [API authorization and regression tests](T018-api-authorization-and-regression-tests.md) | No route handler has ever been exercised by a test                                 | M–L  | Low                         |
 
 > **T010 status:** the repository half is complete (config templates, `/health`
 > proxy, log caps, healthcheck wiring, docs). The VPS deploy and the 18-item
@@ -59,6 +59,20 @@ no memory of the review. Same convention as `docs/todo-encoding-settings.md`.
 > measured before it would be rebooting customer-facing screens. Nothing has run
 > on a real device yet. See "Outcome" in
 > [T015](T015-player-watchdog-and-recovery.md).
+>
+> **T018 status:** done 2026-09-13 — 219 integration tests against a real
+> Postgres and Redis (Testcontainers), covering the route × role matrix for all
+> 79 routes, cross-tenant isolation, device token scope, pairing under
+> concurrency, playback-event dedup, manifest determinism and migration drift,
+> plus 17 new player tests and the end of the false-green `echo "no tests"`
+> scripts. **No authorization hole was found**, and both bugs the review
+> predicted turned out to be safe — the missing `deletedAt` guard on
+> `PATCH /orgs/:orgId` is unreachable, and the command route does scope its
+> playlist lookup. Five mutation tests confirm the suite can fail; ten
+> consecutive runs confirm it is not flaky. The CI workflow is written but has
+> never run, and the mock-device E2E path is deliberately **not** built (it
+> needs MinIO and a worker with ffmpeg). See "Outcome" in
+> [T018](T018-api-authorization-and-regression-tests.md).
 >
 > **T011 status:** nightly encrypted, verified, off-box backups are running on
 > `signage.hamfield.eu`, and DB↔storage reconciliation is implemented. The
@@ -90,8 +104,11 @@ no memory of the review. Same convention as `docs/todo-encoding-settings.md`.
   the soak would just measure the hang.
 - **T017 before x86 production use.** Thin clients typically have small internal
   storage, and there is currently no free-space precheck and no cache cap.
-- **T018 can start as soon as T010 settles the topology.** It changes no
-  application behaviour, so it parallelises cleanly — and it will find real bugs.
+- **T018 changed no application behaviour, as predicted — but it did not find
+  the bugs predicted either.** Both candidates the review named turned out to be
+  safe. The value delivered is the boundary being _held_ rather than repaired;
+  `route-table.ts` fails the suite if a new route is added without a row, so
+  that stays true as the API grows.
 
 ## Cross-cutting gotchas repeated in several files
 

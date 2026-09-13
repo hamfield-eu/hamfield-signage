@@ -1,0 +1,63 @@
+name: CI
+
+# UNVERIFIED: written from the commands that were run locally, but never
+# executed by GitHub Actions — this repository has no remote runner configured
+# yet. Treat the first run as part of the review.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Node 24 has no prebuilt better-sqlite3 binding, and the agent's tests need
+  # one. Pin to 22 rather than making every runner compile it from source.
+  NODE_VERSION: '22'
+
+jobs:
+  # Fast, no Docker, runs on every push. Keep it that way: this is the job
+  # people wait for on a pull request.
+  unit:
+    name: Typecheck and unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The API and web typechecks need the generated Prisma client.
+      - run: pnpm db:generate
+      # First, because it is the fastest way to fail and the cheapest to fix.
+      - run: pnpm format:check
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  # Real Postgres and Redis through Testcontainers. Docker is available on
+  # ubuntu-latest, so no service containers are declared here — Testcontainers
+  # picks its own ports, which also keeps it from colliding with anything.
+  integration:
+    name: API integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      # Includes the migration drift check: it replays every migration from
+      # scratch and diffs the result against schema.prisma.
+      - run: pnpm --filter @signage/api test:integration

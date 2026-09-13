@@ -79,7 +79,7 @@ packages/
 infra/
   docker/       Dockerfiles + nginx config for the compose stack
   device/       install.sh, update.sh, systemd units, signage CLI, kiosk scripts
-docs/           Architecture, API, device install, sync protocol
+docs/           Architecture, API, device install, sync protocol, ops runbook, testing
 ```
 
 ## Quick start (Docker Compose)
@@ -199,6 +199,7 @@ The device boots into a Chromium kiosk and appears online in the dashboard.
 - [docs/api.md](docs/api.md) — REST + WebSocket API reference
 - [docs/device-install.md](docs/device-install.md) — device setup, `signage` CLI, updates
 - [docs/sync-protocol.md](docs/sync-protocol.md) — manifest format and sync semantics
+- [docs/testing.md](docs/testing.md) — the two test suites, what each needs, how to add to them
 - [CHANGELOG.md](CHANGELOG.md) — release history (v0.2 adds folders, smart playlists, superadmin)
 
 ## Notes
