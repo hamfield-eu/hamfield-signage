@@ -29,7 +29,7 @@ step actually showed.
 | -------------------- | ------ | ----------- | ------------ | ---- | --------------- |
 | Raspberry Pi 4/5     | ARM64  | Vulkan      | software     | —    | In production   |
 | ODROID-C4            | ARM64  | software    | software     | —    | In production   |
-| Acer Chromebox CXI3  | x86-64 | expect gles | not yet      | —    | Preflight done  |
+| Acer Chromebox CXI3  | x86-64 | **gles** ✓  | driver ready | —    | Decode unproven |
 | Chromebox (2nd unit) | x86-64 | —           | —            | —    | **UNVALIDATED** |
 
 > **Fleet-wide, as of 2026-09-13: nothing has hardware video decode.** No VA-API
@@ -67,8 +67,9 @@ arm of the driver `case` in `start-player.sh`. **Do not regress it.**
 
 ## Acer Chromebox CXI3 (`hamfield-signage-1`)
 
-**Preflight recorded 2026-09-13. Playback UNVALIDATED** — no VA-API driver
-installed yet, no flag matrix run, no soak.
+**Preflight and first install 2026-09-13.** Compositing is confirmed
+accelerated on the device; **hardware video decode is not yet proven** — the
+driver offers it, Chromium has not been shown to use it, and no soak has run.
 
 | Field                | Value                                                             |
 | -------------------- | ----------------------------------------------------------------- |
@@ -82,10 +83,10 @@ installed yet, no flag matrix run, no soak.
 | GPU                  | Intel HD Graphics 610 `[8086:5906]` rev 07 (Gen9.5, GT1)          |
 | DRM driver           | `i915`, render node `/dev/dri/renderD128` present                 |
 | Display              | HDMI-A-1 at 1920x1080                                             |
-| Vulkan driver        | not installed yet — expect `anv` once `mesa-vulkan-drivers` lands |
-| VA-API driver        | **not installed**                                                 |
-| H.264 decode         | **not determined**                                                |
-| Chromium             | **not installed**                                                 |
+| Vulkan driver        | `Intel open-source Mesa driver` (ANV) — **confirmed on device**   |
+| VA-API driver        | iHD 25.2.3 (`intel-media-va-driver`), VA-API 1.22 — **installed** |
+| H.264 decode         | Available to the driver: High/Main/ConstrainedBaseline + VLD      |
+| Chromium             | 152.0.7977.82 (Debian trixie)                                     |
 | Validated flags      | none — `SIGNAGE_CHROMIUM_EXTRA_FLAGS` unset                       |
 | Soak                 | not run                                                           |
 
@@ -96,10 +97,11 @@ installed yet, no flag matrix run, no soak.
   `non-free` component is needed; the `-non-free` variant only adds codecs that
   are not relevant to H.264 decode. `i965-va-driver` is the fallback if iHD
   misbehaves on this generation.
-- **`auto` should resolve to `gles`.** The `i915` driver means Mesa's `anv`
-  Vulkan driver will be reported once `mesa-vulkan-drivers` is installed, and
-  the driver map added in T016 sends `anv` to `gles`. Before that change this
-  unit would have landed on `software` — see the note at the top of this file.
+- **`auto` resolves to `gles` — confirmed on the device.** `player-logs`
+  reports `kiosk: GPU mode=gles (hardware vulkan driver: intelopen-sourcemesadriver)`.
+  Mesa reports its Vulkan driver as "Intel open-source Mesa driver" rather than
+  the bare `anv` string, which the `*intel*` arm of the map catches. Before the
+  T016 mapping fix this unit would have landed on `software`.
 - **`standard` is the playback tier, not `high`.** Two 1.8 GHz Celeron cores and
   a GT1 iGPU: 1080p30 with hardware decode is comfortable, 1080p60 at 9000 kbps
   is not. `suggestPlaybackProfile` recognises `Sion` explicitly for this reason.
