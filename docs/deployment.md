@@ -450,7 +450,7 @@ install is sound.
 > **For a routine release, use the checklist in
 > [runbook.md §6](runbook.md#6-update--release-deploy) instead of this section.**
 > It wraps the commands below in the controlled sequence that actually matters:
-> check for migrations first, take and *verify* a pre-upgrade backup
+> check for migrations first, take and _verify_ a pre-upgrade backup
 > (`infra/backup/`), snapshot, then deploy and smoke-test. This section explains
 > the mechanics; the runbook is the procedure.
 

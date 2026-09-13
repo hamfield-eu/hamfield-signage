@@ -11,13 +11,13 @@ needs to be deployed, checked, or fixed.
 > themselves — at 2am you need to know which of these are proven and which are
 > best-effort reconstruction.
 >
-> | Tag | Meaning |
-> |---|---|
-> | `[PROD]` | Executed against `signage.hamfield.eu`, **as written**, and the output matched. |
-> | `[PROD-PARTS]` | The individual commands ran on production, but **this sequence has never been executed as a unit**. Assembled from verified pieces. |
-> | `[LOCAL]` | Executed on a workstation against real production data (a restored dump or a downloaded backup bundle). Proves the command; does not prove it in situ. |
-> | `[TESTED]` | Covered by automated tests in this repo, but the containing feature is **not yet deployed** (see §1, "Deployed version"). |
-> | `[UNVERIFIED]` | Written from source-reading. **Never executed.** Read it, then confirm before relying on it. |
+> | Tag            | Meaning                                                                                                                                                |
+> | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+> | `[PROD]`       | Executed against `signage.hamfield.eu`, **as written**, and the output matched.                                                                        |
+> | `[PROD-PARTS]` | The individual commands ran on production, but **this sequence has never been executed as a unit**. Assembled from verified pieces.                    |
+> | `[LOCAL]`      | Executed on a workstation against real production data (a restored dump or a downloaded backup bundle). Proves the command; does not prove it in situ. |
+> | `[TESTED]`     | Covered by automated tests in this repo, but the containing feature is **not yet deployed** (see §1, "Deployed version").                              |
+> | `[UNVERIFIED]` | Written from source-reading. **Never executed.** Read it, then confirm before relying on it.                                                           |
 >
 > There is no fresh-VPS restore drill behind this document. See §8.
 
@@ -80,28 +80,28 @@ topology.
 
 ## 1. At a glance
 
-| | |
-|---|---|
-| **Production URL** | `https://signage.hamfield.eu` |
-| **Host** | Hetzner Cloud VPS |
-| **Repo on host** | `/root/hamfield-signage` (this is the path baked into `infra/backup/systemd/hamfield-backup.service`) |
-| **TLS** | Let's Encrypt via Caddy, automatic renewal; certs persist in the `caddy-data` volume |
-| **Object storage** | Cloudflare R2 — media bucket `signage-media`, backup bucket `hamfield-signage-backup` (Infrequent Access) |
-| **Backups** | Nightly 03:30 UTC via `hamfield-backup.timer` → encrypted → R2 |
-| **Alerts** | ntfy (topic URL is a secret — see below) |
-| **Owner / escalation** | Single operator: the project owner. There is no second on-call. |
+|                        |                                                                                                           |
+| ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| **Production URL**     | `https://signage.hamfield.eu`                                                                             |
+| **Host**               | Hetzner Cloud VPS                                                                                         |
+| **Repo on host**       | `/root/hamfield-signage` (this is the path baked into `infra/backup/systemd/hamfield-backup.service`)     |
+| **TLS**                | Let's Encrypt via Caddy, automatic renewal; certs persist in the `caddy-data` volume                      |
+| **Object storage**     | Cloudflare R2 — media bucket `signage-media`, backup bucket `hamfield-signage-backup` (Infrequent Access) |
+| **Backups**            | Nightly 03:30 UTC via `hamfield-backup.timer` → encrypted → R2                                            |
+| **Alerts**             | ntfy (topic URL is a secret — see below)                                                                  |
+| **Owner / escalation** | Single operator: the project owner. There is no second on-call.                                           |
 
 ### The three git-ignored config files
 
 These are **not in git by design** (`.gitignore`), which makes this runbook and
 the backup bundles the only record that they exist:
 
-| File | Holds |
-|---|---|
-| `/root/hamfield-signage/docker-compose.yml` | Service topology |
-| `/root/hamfield-signage/infra/docker/docker-compose.prod.yml` | Production overrides |
-| `/root/hamfield-signage/infra/docker/Caddyfile` | Domain and TLS config |
-| `/root/hamfield-signage/.env.prod` | **All secrets** — DB password, `JWT_SECRET`, S3 credentials |
+| File                                                          | Holds                                                       |
+| ------------------------------------------------------------- | ----------------------------------------------------------- |
+| `/root/hamfield-signage/docker-compose.yml`                   | Service topology                                            |
+| `/root/hamfield-signage/infra/docker/docker-compose.prod.yml` | Production overrides                                        |
+| `/root/hamfield-signage/infra/docker/Caddyfile`               | Domain and TLS config                                       |
+| `/root/hamfield-signage/.env.prod`                            | **All secrets** — DB password, `JWT_SECRET`, S3 credentials |
 
 Their templates are `docker-compose.example.yml`,
 `infra/docker/docker-compose.prod.example.yml`, `infra/docker/Caddyfile.example`
@@ -111,13 +111,13 @@ and `.env.prod.example`. Every backup bundle contains a copy of the real four.
 
 **No secret values appear in this runbook.** Locations only:
 
-| Secret | Where it lives | Who holds it |
-|---|---|---|
-| DB password, `JWT_SECRET`, S3 keys | `/root/hamfield-signage/.env.prod` on the VPS, and inside every backup bundle | Owner |
-| Backup `age` **private** key | Owner's workstation + password manager. **Deliberately not on the VPS** — the host can write backups it cannot read | Owner |
-| Backup `age` public key | `infra/backup/age.pub` on the VPS (not a secret) | — |
-| R2 media + backup API tokens | `.env.prod` / rclone env config on the VPS; Cloudflare dashboard | Owner |
-| ntfy topic URL | `.env.prod` on the VPS (`ALERT_NTFY_URL`) + owner's password manager | Owner |
+| Secret                             | Where it lives                                                                                                      | Who holds it |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------ |
+| DB password, `JWT_SECRET`, S3 keys | `/root/hamfield-signage/.env.prod` on the VPS, and inside every backup bundle                                       | Owner        |
+| Backup `age` **private** key       | Owner's workstation + password manager. **Deliberately not on the VPS** — the host can write backups it cannot read | Owner        |
+| Backup `age` public key            | `infra/backup/age.pub` on the VPS (not a secret)                                                                    | —            |
+| R2 media + backup API tokens       | `.env.prod` / rclone env config on the VPS; Cloudflare dashboard                                                    | Owner        |
+| ntfy topic URL                     | `.env.prod` on the VPS (`ALERT_NTFY_URL`) + owner's password manager                                                | Owner        |
 
 > The ntfy topic name **is** the access control on ntfy.sh — anyone who knows it
 > can read and post alerts. It must never be committed, pasted into an issue, or
@@ -163,7 +163,7 @@ you are actually rebuilding, expect to debug.
   `-preset medium` (`packages/media/src/transcode.ts`) at `WORKER_CONCURRENCY`
   2 by default. Transcoding, not serving, is what saturates the box.
 - **Build RAM.** `api.Dockerfile`, `worker.Dockerfile` and `web.Dockerfile` each
-  run `pnpm install` at build time. The *build* needs meaningfully more RAM than
+  run `pnpm install` at build time. The _build_ needs meaningfully more RAM than
   the steady state. Add swap if RAM is tight — an OOM-killed build fails in
   confusing ways.
 - **OS baseline.** Debian/Ubuntu LTS, `unattended-upgrades` enabled, timezone
@@ -183,18 +183,18 @@ you are actually rebuilding, expect to debug.
 The authoritative control is the **Hetzner Cloud Firewall**, not `ufw`.
 
 > **Why `ufw` alone is not enough:** Docker writes its own `iptables` rules
-> directly into the `DOCKER` chain, which is traversed *before* the chains `ufw`
+> directly into the `DOCKER` chain, which is traversed _before_ the chains `ufw`
 > manages. A published container port can therefore be reachable from the
 > internet even when `ufw` claims to deny it. On this host `ufw` is inactive and
 > the cloud firewall is the only enforcement layer — which is the correct
 > arrangement, not an oversight.
 
-| Port | Proto | Source | Purpose |
-|---|---|---|---|
-| 22 | TCP | admin IP only | SSH |
-| 80 | TCP | any | ACME HTTP-01 + redirect to 443 |
-| 443 | TCP | any | Dashboard, API, device WSS |
-| — | ICMP | any | Diagnostics |
+| Port | Proto | Source        | Purpose                        |
+| ---- | ----- | ------------- | ------------------------------ |
+| 22   | TCP   | admin IP only | SSH                            |
+| 80   | TCP   | any           | ACME HTTP-01 + redirect to 443 |
+| 443  | TCP   | any           | Dashboard, API, device WSS     |
+| —    | ICMP  | any           | Diagnostics                    |
 
 Outbound: all allowed. Everything else inbound: denied.
 
@@ -212,7 +212,7 @@ were removed as leftovers during T012, but check anyway).
 nmap -Pn signage.hamfield.eu
 ```
 
-`[UNVERIFIED]` as an *external* audit. A scan was run during T012, but **from
+`[UNVERIFIED]` as an _external_ audit. A scan was run during T012, but **from
 the admin's own network** — the one source permitted to reach port 22. That scan
 therefore cannot demonstrate that 22 is closed to anyone else; it can only
 confirm the other ports. To actually verify, run the scan from an unrelated
@@ -321,14 +321,14 @@ The controlled sequence. Tick these off literally.
 `[PROD-PARTS]` — **this checklist has never been run end to end as a unit.**
 Per step:
 
-| Step | Provenance |
-|---|---|
-| 2, 3 (backup + verify) | `[PROD]` — the nightly path, run repeatedly under T011 |
-| 6, 8, 10, 11 (checkout, build, up, restart caddy) | `[PROD]` — executed individually during the T010 `.env.prod` migration |
-| 9 (`run --rm migrate`) | `[PROD-PARTS]` — migrations have applied on production, but via the one-shot `migrate` service during `up`, **not** as a standalone `run --rm` ahead of it. The standalone form is documented in `deployment.md` §9 and is the safer order, because you see the result before anything restarts — but confirm it on the next deploy |
-| 1, 7 (the two diffs) | `[UNVERIFIED]` — plain `git diff`, but not run in this form |
-| 4 (Hetzner snapshot) | `[UNVERIFIED]` |
-| 12, 13 | see §12 |
+| Step                                              | Provenance                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2, 3 (backup + verify)                            | `[PROD]` — the nightly path, run repeatedly under T011                                                                                                                                                                                                                                                                              |
+| 6, 8, 10, 11 (checkout, build, up, restart caddy) | `[PROD]` — executed individually during the T010 `.env.prod` migration                                                                                                                                                                                                                                                              |
+| 9 (`run --rm migrate`)                            | `[PROD-PARTS]` — migrations have applied on production, but via the one-shot `migrate` service during `up`, **not** as a standalone `run --rm` ahead of it. The standalone form is documented in `deployment.md` §9 and is the safer order, because you see the result before anything restarts — but confirm it on the next deploy |
+| 1, 7 (the two diffs)                              | `[UNVERIFIED]` — plain `git diff`, but not run in this form                                                                                                                                                                                                                                                                         |
+| 4 (Hetzner snapshot)                              | `[UNVERIFIED]`                                                                                                                                                                                                                                                                                                                      |
+| 12, 13                                            | see §12                                                                                                                                                                                                                                                                                                                             |
 
 > **Step 11 is not optional when config changed.** A bind-mounted `Caddyfile` is
 > **not** re-read by `up -d`; the container keeps its old config and you get a
@@ -357,7 +357,7 @@ Per step:
 
 **Prisma `migrate deploy` is forward-only. There are no down migrations.**
 Every migration in this project is effectively irreversible. "Rollback" of a
-migration means *restore from backup* — there is no other mechanism. Internalise
+migration means _restore from backup_ — there is no other mechanism. Internalise
 this before you deploy anything schema-touching.
 
 - **Additive migrations** — new nullable column, new table, new enum value — are
@@ -365,7 +365,7 @@ this before you deploy anything schema-touching.
   current migrations are this shape, including the two added by T012/T013
   (`user_password_changed_at`, `retention_and_playstats_indexes`).
 - **Destructive migrations** require a two-phase release: ship tolerant code
-  first, remove the old shape in a *later* release. **Never combine them.** A
+  first, remove the old shape in a _later_ release. **Never combine them.** A
   single release that both drops a column and ships code assuming it is gone has
   no cheap rollback.
 - **`ALTER TYPE ... ADD VALUE`** (used in
@@ -451,9 +451,9 @@ Two separate things, deliberately not conflated:
 
 **Drills** — a full recovery on a fresh VPS from a bundle alone.
 
-| Date | Result | Duration |
-|---|---|---|
-| *(none)* | — | — |
+| Date     | Result | Duration |
+| -------- | ------ | -------- |
+| _(none)_ | —      | —        |
 
 > **No drill has ever been performed.** It was **waived by the project owner on
 > 2026-09-09** as a scheduling decision, with the rehearsal below accepted in its
@@ -463,8 +463,8 @@ Two separate things, deliberately not conflated:
 
 **Rehearsals** — partial exercises that prove specific links in the chain.
 
-| Date | What was proven | What it did **not** prove | Duration |
-|---|---|---|---|
+| Date       | What was proven                                                                                                                                                                                                                                                                                                                                                                                        | What it did **not** prove                                                                                                                                                                                                                      | Duration                       |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
 | 2026-09-09 | Bundle `backup-20260909T155753Z` pulled from R2, decrypted with the real `age` private key, archive contents and dump sha256 checked, `pg_restore` into a throwaway container, row counts identical to production, `_prisma_migrations` head matching the manifest, 2 live 64-char `device_token` hashes surviving (so **paired screens reconnect without re-pairing**), superadmin bcrypt hash intact | Nothing about a bare VPS — the machine already had Docker, the repo and the images. **No stack was started**; Caddy was never run, because an ACME attempt for the production domain risks a Let's Encrypt lockout. `restore.sh` was not used. | ~20 s (decrypt + restore only) |
 
 **A rehearsal older than six months should be treated as untested.** Re-run by
@@ -472,12 +472,12 @@ Two separate things, deliberately not conflated:
 
 ### What is NOT backed up
 
-| Not covered | Cost | Recovery |
-|---|---|---|
-| Redis / BullMQ queue state | In-flight jobs lost | Re-enqueue: `dc exec api node apps/api/dist/cli/reprocess-media.js` `[UNVERIFIED]` — path inferred from `apps/api/src/cli/reprocess-media.ts` and the `tsc -p tsconfig.json` build; the sibling `create-superadmin.js` is attested at that path. Confirm with `dc exec api ls apps/api/dist/cli` |
-| Media objects (images/video) | All customer content | **Relies entirely on Cloudflare R2 durability.** R2 has **no object versioning** (`PutBucketVersioning` is not implemented), so an accidental or malicious delete is not recoverable from the media bucket itself. Risk explicitly accepted by the owner, 2026-09-09. |
-| In-flight transcodes | Partial outputs | Reprocess the affected assets |
-| TLS certificates | Re-issued by ACME | Automatic, but counts against rate limits |
+| Not covered                  | Cost                 | Recovery                                                                                                                                                                                                                                                                                         |
+| ---------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Redis / BullMQ queue state   | In-flight jobs lost  | Re-enqueue: `dc exec api node apps/api/dist/cli/reprocess-media.js` `[UNVERIFIED]` — path inferred from `apps/api/src/cli/reprocess-media.ts` and the `tsc -p tsconfig.json` build; the sibling `create-superadmin.js` is attested at that path. Confirm with `dc exec api ls apps/api/dist/cli` |
+| Media objects (images/video) | All customer content | **Relies entirely on Cloudflare R2 durability.** R2 has **no object versioning** (`PutBucketVersioning` is not implemented), so an accidental or malicious delete is not recoverable from the media bucket itself. Risk explicitly accepted by the owner, 2026-09-09.                            |
+| In-flight transcodes         | Partial outputs      | Reprocess the affected assets                                                                                                                                                                                                                                                                    |
+| TLS certificates             | Re-issued by ACME    | Automatic, but counts against rate limits                                                                                                                                                                                                                                                        |
 
 Run `/root/hamfield-signage/infra/backup/reconcile-media.sh` after any restore to find DB ↔ object
 storage skew. It is read-only against the media bucket (`rclone lsf` only).
@@ -507,13 +507,13 @@ storage skew. It is read-only against the media bucket (`rclone lsf` only).
 
 ### Scenarios
 
-| Scenario | Action | Expected cost |
-|---|---|---|
-| Config change broke it, no migration | Restore the previous config file, `up -d` | Seconds `[UNVERIFIED]` |
-| New code broke it, no new migration | `git checkout <previous-sha>`, build, `up -d` | Minutes; data untouched `[UNVERIFIED]` |
-| New code + **additive** migration, code broken | `git checkout <previous-sha>`, build, `up -d`. The extra columns are simply ignored by the old code. **This is why additive-only migrations matter.** | Minutes `[UNVERIFIED]` |
-| New code + **destructive** migration, anything broken | **Full restore from the pre-upgrade backup**, then the previous SHA | Loss of everything written since the pre-upgrade backup. Duration **unmeasured** |
-| Disk failure / VPS loss | New VPS → first-deploy (§5) → `restore.sh` with the latest bundle | **Unmeasured — never drilled** |
+| Scenario                                              | Action                                                                                                                                                | Expected cost                                                                    |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Config change broke it, no migration                  | Restore the previous config file, `up -d`                                                                                                             | Seconds `[UNVERIFIED]`                                                           |
+| New code broke it, no new migration                   | `git checkout <previous-sha>`, build, `up -d`                                                                                                         | Minutes; data untouched `[UNVERIFIED]`                                           |
+| New code + **additive** migration, code broken        | `git checkout <previous-sha>`, build, `up -d`. The extra columns are simply ignored by the old code. **This is why additive-only migrations matter.** | Minutes `[UNVERIFIED]`                                                           |
+| New code + **destructive** migration, anything broken | **Full restore from the pre-upgrade backup**, then the previous SHA                                                                                   | Loss of everything written since the pre-upgrade backup. Duration **unmeasured** |
+| Disk failure / VPS loss                               | New VPS → first-deploy (§5) → `restore.sh` with the latest bundle                                                                                     | **Unmeasured — never drilled**                                                   |
 
 > **All durations in this table are estimates, not measurements.** `[UNVERIFIED]`
 > — the upgrade procedure has never been executed on a non-production host, so
@@ -529,17 +529,17 @@ too.
 
 ## 10. Checking logs
 
-| Need | Command |
-|---|---|
-| API | `dc logs -f api` (JSON in production) |
-| Worker / transcoding | `dc logs -f worker` |
-| TLS / proxy | `dc logs -f caddy` |
-| Dashboard proxy (nginx) | `dc logs -f web` |
-| Migrations | `dc logs migrate` |
-| Backups | `journalctl -u hamfield-backup` |
-| Device agent | `signage logs -f` (on the device) |
-| Kiosk browser | `signage player-logs -f` (on the device) |
-| Device logs, centrally | Dashboard → screen → Logs, or `GET /orgs/:orgId/devices/:deviceId/logs` |
+| Need                    | Command                                                                 |
+| ----------------------- | ----------------------------------------------------------------------- |
+| API                     | `dc logs -f api` (JSON in production)                                   |
+| Worker / transcoding    | `dc logs -f worker`                                                     |
+| TLS / proxy             | `dc logs -f caddy`                                                      |
+| Dashboard proxy (nginx) | `dc logs -f web`                                                        |
+| Migrations              | `dc logs migrate`                                                       |
+| Backups                 | `journalctl -u hamfield-backup`                                         |
+| Device agent            | `signage logs -f` (on the device)                                       |
+| Kiosk browser           | `signage player-logs -f` (on the device)                                |
+| Device logs, centrally  | Dashboard → screen → Logs, or `GET /orgs/:orgId/devices/:deviceId/logs` |
 
 `[PROD]` for `logs api`, `logs worker`, `logs caddy`, `logs migrate` and
 `journalctl -u hamfield-backup` — all run on production during T010–T013.
@@ -722,36 +722,36 @@ Every row says what to **do**.
 
 ### Server-side
 
-| Symptom | Likely cause | Action |
-|---|---|---|
-| `migrate` exits 1 with `P1000` | `POSTGRES_PASSWORD` ≠ the password inside `DATABASE_URL`. The password is baked into `postgres-data` at first creation and never updated by changing the env var | Fix the URL to match the **original** password. **Do not `down -v`** — that deletes the database |
-| API exits immediately on start | `JWT_SECRET` still the dev placeholder under `NODE_ENV=production` (guard at `apps/api/src/env.ts:52`) | Set a real secret in `.env.prod` |
-| API exits on start after an upgrade | A newly required env var is missing; the zod schema rejects it | Diff your config against the updated templates (§6 step 7); read `logs api` — zod names the variable |
-| **502 across the whole site after a deploy** | Bind-mounted `Caddyfile` changed but Caddy was not restarted; `up -d` does not re-read it | `dc restart caddy` `[PROD]` |
-| **502 on `/api/…` only, dashboard loads** | Old `web` image pinned the `api` container IP at nginx startup; the IP changed | `restart web` now; rebuild `web` from current `infra/docker/web-nginx.conf` to fix permanently `[PROD]` |
-| Caddy cannot get a certificate | DNS not pointing here, 80/443 blocked, or Cloudflare orange-cloud | `dig`, check the firewall, set the record to DNS-only. **Stop retrying** — you are burning rate limit |
-| Devices reach HTTPS but not WSS | Proxy not forwarding the upgrade | The bundled nginx + Caddyfile do forward it; a Cloudflare proxy may not |
-| Thumbnails broken in the dashboard | `S3_PUBLIC_ENDPOINT` wrong, bucket CORS, or `S3_FORCE_PATH_STYLE` wrong for the provider | Check all three. R2 wants `true` |
-| Media stuck at `pending` | Worker down, Redis down, or ffmpeg missing | `logs worker`; re-enqueue with `reprocess-media` |
-| Media `failed` | Read `processingError` on the asset | Fix the source, then reprocess |
-| Disk filling on the server | Telemetry tables, images, build cache | `docker system df`; `docker image prune -f`. Retention (T013) fixes the telemetry share once deployed and taken out of dry-run |
-| Emergency override left on | No auto-expiry in `routes/emergency.ts` | Dashboard → Emergency → stop. T013 adds an alert after `ALERT_EMERGENCY_HOURS` (default 4) |
+| Symptom                                      | Likely cause                                                                                                                                                     | Action                                                                                                                         |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `migrate` exits 1 with `P1000`               | `POSTGRES_PASSWORD` ≠ the password inside `DATABASE_URL`. The password is baked into `postgres-data` at first creation and never updated by changing the env var | Fix the URL to match the **original** password. **Do not `down -v`** — that deletes the database                               |
+| API exits immediately on start               | `JWT_SECRET` still the dev placeholder under `NODE_ENV=production` (guard at `apps/api/src/env.ts:52`)                                                           | Set a real secret in `.env.prod`                                                                                               |
+| API exits on start after an upgrade          | A newly required env var is missing; the zod schema rejects it                                                                                                   | Diff your config against the updated templates (§6 step 7); read `logs api` — zod names the variable                           |
+| **502 across the whole site after a deploy** | Bind-mounted `Caddyfile` changed but Caddy was not restarted; `up -d` does not re-read it                                                                        | `dc restart caddy` `[PROD]`                                                                                                    |
+| **502 on `/api/…` only, dashboard loads**    | Old `web` image pinned the `api` container IP at nginx startup; the IP changed                                                                                   | `restart web` now; rebuild `web` from current `infra/docker/web-nginx.conf` to fix permanently `[PROD]`                        |
+| Caddy cannot get a certificate               | DNS not pointing here, 80/443 blocked, or Cloudflare orange-cloud                                                                                                | `dig`, check the firewall, set the record to DNS-only. **Stop retrying** — you are burning rate limit                          |
+| Devices reach HTTPS but not WSS              | Proxy not forwarding the upgrade                                                                                                                                 | The bundled nginx + Caddyfile do forward it; a Cloudflare proxy may not                                                        |
+| Thumbnails broken in the dashboard           | `S3_PUBLIC_ENDPOINT` wrong, bucket CORS, or `S3_FORCE_PATH_STYLE` wrong for the provider                                                                         | Check all three. R2 wants `true`                                                                                               |
+| Media stuck at `pending`                     | Worker down, Redis down, or ffmpeg missing                                                                                                                       | `logs worker`; re-enqueue with `reprocess-media`                                                                               |
+| Media `failed`                               | Read `processingError` on the asset                                                                                                                              | Fix the source, then reprocess                                                                                                 |
+| Disk filling on the server                   | Telemetry tables, images, build cache                                                                                                                            | `docker system df`; `docker image prune -f`. Retention (T013) fixes the telemetry share once deployed and taken out of dry-run |
+| Emergency override left on                   | No auto-expiry in `routes/emergency.ts`                                                                                                                          | Dashboard → Emergency → stop. T013 adds an alert after `ALERT_EMERGENCY_HOURS` (default 4)                                     |
 
 ### Device-side
 
 The four known issues from the review. Each has a workaround **and** the task
 that fixes it properly — do not mistake the workaround for a fix.
 
-| Symptom | Cause | Workaround | Real fix |
-|---|---|---|---|
-| Device online but content stale | Sync failing | `signage logs -f`; dashboard sync status; send `refresh_content` | — |
-| **Screen frozen on one video** (F1) | Videos get `durationSeconds: null`, so no timer is armed and `onended` is the only exit. A stalled video never advances | `restart_player` command | **T015** |
-| **Device disk full → sync fails forever** (F6) | No free-space precheck; sync aborts and never converges | Free space, or reduce the playlist | **T017** |
-| **Cached file corrupt → item errors forever** (F5) | The cache is never re-validated against what is on disk | `clear_cache` command | **T017** |
-| **Command shows `sent` forever** (F9) | The device is offline; commands expire after 10 min but are never marked `expired` | Re-issue once the device is back online | — |
-| Screen shows "not paired" | Wrong or expired code | `signage logs -f`, then `signage pair <new code>` | — |
-| Black screen / no X | X permissions | `signage player-logs`; confirm `/etc/X11/Xwrapper.config` has `allowed_users=anybody` | — |
-| Media won't download | Server unreachable from the device | `curl -fsS $SIGNAGE_SERVER_URL/health`. Note `/healthz` is the device's **own** player server, not the server's | — |
+| Symptom                                            | Cause                                                                                                                   | Workaround                                                                                                      | Real fix |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | -------- |
+| Device online but content stale                    | Sync failing                                                                                                            | `signage logs -f`; dashboard sync status; send `refresh_content`                                                | —        |
+| **Screen frozen on one video** (F1)                | Videos get `durationSeconds: null`, so no timer is armed and `onended` is the only exit. A stalled video never advances | `restart_player` command                                                                                        | **T015** |
+| **Device disk full → sync fails forever** (F6)     | No free-space precheck; sync aborts and never converges                                                                 | Free space, or reduce the playlist                                                                              | **T017** |
+| **Cached file corrupt → item errors forever** (F5) | The cache is never re-validated against what is on disk                                                                 | `clear_cache` command                                                                                           | **T017** |
+| **Command shows `sent` forever** (F9)              | The device is offline; commands expire after 10 min but are never marked `expired`                                      | Re-issue once the device is back online                                                                         | —        |
+| Screen shows "not paired"                          | Wrong or expired code                                                                                                   | `signage logs -f`, then `signage pair <new code>`                                                               | —        |
+| Black screen / no X                                | X permissions                                                                                                           | `signage player-logs`; confirm `/etc/X11/Xwrapper.config` has `allowed_users=anybody`                           | —        |
+| Media won't download                               | Server unreachable from the device                                                                                      | `curl -fsS $SIGNAGE_SERVER_URL/health`. Note `/healthz` is the device's **own** player server, not the server's | —        |
 
 ---
 
@@ -776,12 +776,12 @@ operational risk:
 
 ### Who may run what
 
-| Action | Rule |
-|---|---|
-| Deploy / rollback | Owner |
+| Action                                                    | Rule                                                                                                                                                                                                            |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deploy / rollback                                         | Owner                                                                                                                                                                                                           |
 | Retention job **non-dry-run** (`RETENTION_DRY_RUN=false`) | **Owner only, and only with a verified backup from the same day.** It issues batched `DELETE`s against telemetry tables. Leave it in dry-run until the deleted counts in the logs have been read and look right |
-| `restore.sh` | **Owner only. Destructive, and never executed end to end** (§8) |
-| Rotating the superadmin password | Owner |
+| `restore.sh`                                              | **Owner only. Destructive, and never executed end to end** (§8)                                                                                                                                                 |
+| Rotating the superadmin password                          | Owner                                                                                                                                                                                                           |
 
 ### When to roll back vs. wait
 
@@ -798,7 +798,7 @@ operational risk:
 
 - **Repair in place** when the schema is intact and the fault is config, code or
   a stuck queue. Nearly every incident is this.
-- **Restore from backup** when the *data* is wrong or the schema is
+- **Restore from backup** when the _data_ is wrong or the schema is
   half-migrated — specifically after a failed `ALTER TYPE` (§7), an accidental
   `down -v`, or any destructive migration that shipped with broken code.
 - **Never `docker compose down -v` on production.** It deletes `postgres-data`.

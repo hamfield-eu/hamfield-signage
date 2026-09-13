@@ -1,12 +1,12 @@
 # T014 — Release process and production runbook
 
-| | |
-|---|---|
-| **Estimate** | S–M (writing, not building — but it must be *executed and verified*, not just drafted) |
-| **Risk** | Low to write, **High if wrong** — an incorrect runbook is worse than none, because it is trusted during an incident |
-| **Depends on** | T010 (deployment), T011 (backup/restore), T012 (firewall/security), T013 (health/alerts) |
-| **Blocks** | Handing operations to anyone other than the author; customer commitments |
-| **Status** | `docs/runbook.md` written (2026-09-10), all 16 sections. Every block is tagged with provenance; the document is honest about what was never executed. **Two acceptance items cannot be met and are recorded as open below**, not silently ticked. |
+|                |                                                                                                                                                                                                                                                   |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Estimate**   | S–M (writing, not building — but it must be _executed and verified_, not just drafted)                                                                                                                                                            |
+| **Risk**       | Low to write, **High if wrong** — an incorrect runbook is worse than none, because it is trusted during an incident                                                                                                                               |
+| **Depends on** | T010 (deployment), T011 (backup/restore), T012 (firewall/security), T013 (health/alerts)                                                                                                                                                          |
+| **Blocks**     | Handing operations to anyone other than the author; customer commitments                                                                                                                                                                          |
+| **Status**     | `docs/runbook.md` written (2026-09-10), all 16 sections. Every block is tagged with provenance; the document is honest about what was never executed. **Two acceptance items cannot be met and are recorded as open below**, not silently ticked. |
 
 > Self-contained by design: a fresh Claude Code session has no memory of the
 > review that produced this file.
@@ -36,7 +36,7 @@ Existing documentation is genuinely good but scattered and partly wrong:
 - `docs/device-install.md` (146 lines) — device setup, the `signage` CLI, updates,
   re-pairing, troubleshooting. **Contains a confirmed error at line 145:**
   `curl -v $SIGNAGE_SERVER_URL/healthz` — wrong path (the API route is `/health`,
-  `apps/api/src/server.ts:104`) *and* wrong service (`/healthz` belongs to the
+  `apps/api/src/server.ts:104`) _and_ wrong service (`/healthz` belongs to the
   device agent's local player server, `apps/agent/src/player-server.ts`).
 - `docs/device-updates.md` (157 lines) — the remote `software_update` flow.
 - `docs/architecture.md` — good, but line 229 claims telemetry is "pruned" when no
@@ -57,18 +57,21 @@ deployment.
 ## Files likely involved
 
 **Create:**
+
 - `docs/runbook.md` — the operational document (the deliverable)
 - `docs/runbook-incidents.md` — optional split if the main file gets unwieldy
 
 **Edit:**
+
 - `docs/deployment.md` — point `§9` (updates) and `§10` (backups) at T011's
-  scripts and the runbook; keep it as the *first-deploy* reference
+  scripts and the runbook; keep it as the _first-deploy_ reference
 - `docs/device-install.md:145` — fix the `/healthz` error
 - `docs/architecture.md:229` — pruning claim (after T013 lands)
 - `docs/architecture.md` + `README.md` — the "React player UI" inaccuracy
 - `README.md` — link the runbook
 
 **Read-only reference:**
+
 - `infra/device/signage` — the device CLI (`status`, `logs`, `player-logs`,
   `restart`, `restart-player`, `pair`, `config`, `health`, `screenshot`, `version`)
 - `infra/device/install.sh` — installer flags (`--server`, `--pairing-code`,
@@ -123,11 +126,11 @@ Reproduce the table verbatim, and state plainly **why the Hetzner Cloud Firewall
 is required and `ufw` alone is not**: Docker writes `iptables` rules directly and
 can bypass host-level `ufw` configuration.
 
-| Port | Proto | Source | Purpose |
-|---|---|---|---|
-| 22 | TCP | admin IPs only | SSH |
-| 80 | TCP | any | ACME HTTP-01 + redirect |
-| 443 | TCP | any | dashboard, API, device WSS |
+| Port | Proto | Source         | Purpose                    |
+| ---- | ----- | -------------- | -------------------------- |
+| 22   | TCP   | admin IPs only | SSH                        |
+| 80   | TCP   | any            | ACME HTTP-01 + redirect    |
+| 443  | TCP   | any            | dashboard, API, device WSS |
 
 Everything else denied. Include the verification command
 (`nmap -Pn <ip>` from off-box) and the explicit list of ports that **must** be
@@ -191,8 +194,8 @@ returns.
   partially altered. If migrate fails on an enum change, **stop and restore**
   rather than retrying blindly.
 - How to check state: `docker compose exec api node
-  packages/database/node_modules/prisma/build/index.js migrate status
-  --schema packages/database/prisma/schema.prisma`
+packages/database/node_modules/prisma/build/index.js migrate status
+--schema packages/database/prisma/schema.prisma`
 
 ### 8. Backup and restore
 
@@ -215,15 +218,15 @@ restore from the pre-upgrade backup.
 
 ### 10. Checking logs
 
-| Need | Command |
-|---|---|
-| API | `docker compose logs -f api` (JSON in production) |
-| Worker / transcoding | `docker compose logs -f worker` |
-| TLS / proxy | `docker compose logs -f caddy` |
-| Migrations | `docker compose logs migrate` |
-| Backups | `journalctl -u hamfield-backup` |
-| Device agent | `signage logs -f` (on the device) |
-| Kiosk browser | `signage player-logs -f` (on the device) |
+| Need                   | Command                                                                 |
+| ---------------------- | ----------------------------------------------------------------------- |
+| API                    | `docker compose logs -f api` (JSON in production)                       |
+| Worker / transcoding   | `docker compose logs -f worker`                                         |
+| TLS / proxy            | `docker compose logs -f caddy`                                          |
+| Migrations             | `docker compose logs migrate`                                           |
+| Backups                | `journalctl -u hamfield-backup`                                         |
+| Device agent           | `signage logs -f` (on the device)                                       |
+| Kiosk browser          | `signage player-logs -f` (on the device)                                |
 | Device logs, centrally | dashboard → screen → logs, or `GET /orgs/:orgId/devices/:deviceId/logs` |
 
 Add the two or three greps that actually matter in an incident:
@@ -288,22 +291,22 @@ What belongs here:
 Merge and extend the existing tables from `docs/deployment.md:§13` and
 `docs/device-install.md`, and add what the review found:
 
-| Symptom | Likely cause | Action |
-|---|---|---|
-| `migrate` exits 1 with `P1000` | `POSTGRES_PASSWORD` ≠ password inside `DATABASE_URL`. The password is baked into `postgres-data` on first creation | Fix the URL to match the original password. **Do not `down -v`** |
-| API exits immediately on start | `JWT_SECRET` still the dev placeholder under `NODE_ENV=production` (guard at `apps/api/src/env.ts:52`) | Set a real secret |
-| API exits on start after an upgrade | A newly required env var missing; zod schema rejects it | Diff your config against the updated `.env.example` |
-| Caddy cannot get a certificate | DNS not pointing at the host, 80/443 blocked, or Cloudflare orange-cloud | `dig`, firewall, set DNS-only |
-| Devices connect over HTTPS but not WSS | Proxy not forwarding the upgrade | The bundled nginx + Caddyfile do; Cloudflare proxy may not |
-| Thumbnails broken in the dashboard | `S3_PUBLIC_ENDPOINT` wrong, bucket CORS, or `S3_FORCE_PATH_STYLE` wrong for the provider | Check all three |
-| Media stuck at `pending` | Worker down, Redis down, or ffmpeg missing | `docker compose logs worker`; re-enqueue with `reprocess-media` |
-| Media `failed` | Check `processingError` on the asset | Reprocess after fixing the source |
-| Device online but content stale | Sync failing | `signage logs -f`; dashboard sync status; send `refresh_content` |
-| **Device disk full → sync fails forever** | No free-space precheck; sync aborts and never converges (report F6) | Free space or reduce the playlist. **Proper fix is T017** |
-| **Screen frozen on one video** | A stalled video never advances: videos get `durationSeconds: null` so no timer is armed and `onended` is the only exit (report F1) | `restart_player` command as a workaround. **Proper fix is T015** |
-| **Cached file corrupt → item errors forever** | Cache is never re-validated against disk (report F5) | `clear_cache` command as a workaround. **Proper fix is T017** |
-| Emergency override left on | No auto-expiry in `routes/emergency.ts` | Dashboard → Emergency → stop. Alert added in T013 |
-| Command shows `sent` forever | Device offline; commands expire after 10 min and are never marked `expired` (report F9) | Re-issue once the device is online |
+| Symptom                                       | Likely cause                                                                                                                       | Action                                                           |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `migrate` exits 1 with `P1000`                | `POSTGRES_PASSWORD` ≠ password inside `DATABASE_URL`. The password is baked into `postgres-data` on first creation                 | Fix the URL to match the original password. **Do not `down -v`** |
+| API exits immediately on start                | `JWT_SECRET` still the dev placeholder under `NODE_ENV=production` (guard at `apps/api/src/env.ts:52`)                             | Set a real secret                                                |
+| API exits on start after an upgrade           | A newly required env var missing; zod schema rejects it                                                                            | Diff your config against the updated `.env.example`              |
+| Caddy cannot get a certificate                | DNS not pointing at the host, 80/443 blocked, or Cloudflare orange-cloud                                                           | `dig`, firewall, set DNS-only                                    |
+| Devices connect over HTTPS but not WSS        | Proxy not forwarding the upgrade                                                                                                   | The bundled nginx + Caddyfile do; Cloudflare proxy may not       |
+| Thumbnails broken in the dashboard            | `S3_PUBLIC_ENDPOINT` wrong, bucket CORS, or `S3_FORCE_PATH_STYLE` wrong for the provider                                           | Check all three                                                  |
+| Media stuck at `pending`                      | Worker down, Redis down, or ffmpeg missing                                                                                         | `docker compose logs worker`; re-enqueue with `reprocess-media`  |
+| Media `failed`                                | Check `processingError` on the asset                                                                                               | Reprocess after fixing the source                                |
+| Device online but content stale               | Sync failing                                                                                                                       | `signage logs -f`; dashboard sync status; send `refresh_content` |
+| **Device disk full → sync fails forever**     | No free-space precheck; sync aborts and never converges (report F6)                                                                | Free space or reduce the playlist. **Proper fix is T017**        |
+| **Screen frozen on one video**                | A stalled video never advances: videos get `durationSeconds: null` so no timer is armed and `onended` is the only exit (report F1) | `restart_player` command as a workaround. **Proper fix is T015** |
+| **Cached file corrupt → item errors forever** | Cache is never re-validated against disk (report F5)                                                                               | `clear_cache` command as a workaround. **Proper fix is T017**    |
+| Emergency override left on                    | No auto-expiry in `routes/emergency.ts`                                                                                            | Dashboard → Emergency → stop. Alert added in T013                |
+| Command shows `sent` forever                  | Device offline; commands expire after 10 min and are never marked `expired` (report F9)                                            | Re-issue once the device is online                               |
 
 Every row must say **what to do**, not just what happened.
 
@@ -320,23 +323,23 @@ Every row must say **what to do**, not just what happened.
 
 - [x] `docs/runbook.md` exists and covers all 16 sections above.
 - [~] **Every command in it has been executed on a real host and its output
-      matches what the document claims.** — *Partially.* Rather than claim this
-      falsely, the runbook tags **every** block with provenance: `[PROD]`
-      (executed against signage.hamfield.eu **as written**), `[PROD-PARTS]`
-      (the commands ran on production, but the *sequence* never did — §6's
-      release checklist and §12's smoke test are both this), `[LOCAL]`
-      (executed on a workstation against real production data), `[TESTED]`
-      (covered by tests but **not deployed** — all of T012/T013), and
-      `[UNVERIFIED]` (written from source, never run). §2 (initial VPS setup),
-      §14 (Chromebox) and `restore.sh` are entirely `[UNVERIFIED]`.
+  matches what the document claims.** — _Partially._ Rather than claim this
+  falsely, the runbook tags **every** block with provenance: `[PROD]`
+  (executed against signage.hamfield.eu **as written**), `[PROD-PARTS]`
+  (the commands ran on production, but the _sequence_ never did — §6's
+  release checklist and §12's smoke test are both this), `[LOCAL]`
+  (executed on a workstation against real production data), `[TESTED]`
+  (covered by tests but **not deployed** — all of T012/T013), and
+  `[UNVERIFIED]` (written from source, never run). §2 (initial VPS setup),
+  §14 (Chromebox) and `restore.sh` are entirely `[UNVERIFIED]`.
 - [ ] A person who is not the author performs, using only the runbook:
       an update deploy, a backup, a restore drill on a fresh VPS, and adding +
       pairing a device. Each succeeds without asking the author a question.
       — **Not done.** Single-operator project; there is no second person, and
       the fresh-VPS drill was waived under T011.
 - [ ] The restore drill table has at least one dated entry with a measured
-      duration. — **Deliberately empty.** The drill table in §8 has *no* rows,
-      because no drill has been run. A separate *rehearsal* table records the
+      duration. — **Deliberately empty.** The drill table in §8 has _no_ rows,
+      because no drill has been run. A separate _rehearsal_ table records the
       2026-09-09 workstation exercise (~20 s) with an explicit column for what
       it did **not** prove. Conflating the two would be the single most
       dangerous line in the document.
