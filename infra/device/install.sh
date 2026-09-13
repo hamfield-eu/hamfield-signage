@@ -192,12 +192,19 @@ if [ "$INSTALL_PLAYER" -eq 1 ]; then
   # Validated on an Acer Chromebox CXI3 (Kaby Lake GT1, [8086:5906]): iHD
   # 25.2.3 reports VAProfileH264High/Main/ConstrainedBaseline with
   # VAEntrypointVLD. See docs/hardware-matrix.md.
+  #
+  # IMPORTANT: as of Debian 13, the distro's Chromium is built WITHOUT VA-API
+  # (`strings -a /usr/lib/chromium/chromium | grep -ci vaapi` → 0), so these
+  # packages do NOT currently deliver hardware decode there. They are installed
+  # anyway because `vainfo` is the diagnostic that tells an operator whether the
+  # hardware is even capable, and because a Chromium built with `use_vaapi=true`
+  # needs them present. Do not read the success message below as "decode is on".
   if [ "$(uname -m)" = "x86_64" ]; then
     log "Installing VA-API packages for Intel hardware video decode"
     apt-get install -y vainfo intel-media-va-driver i965-va-driver || true
     if command -v vainfo > /dev/null 2>&1; then
       if vainfo 2>&1 | grep -qE 'VAProfileH264.*VAEntrypointVLD'; then
-        log "VA-API: hardware H.264 decode is available"
+        log "VA-API: the driver offers hardware H.264 decode (Chromium must also support it)"
       else
         # Not fatal: the kiosk still plays, in software. But it is the single
         # thing most worth knowing about an x86 device, so say it loudly rather
@@ -267,6 +274,32 @@ if [ "$INSTALL_PLAYER" -eq 1 ]; then
 allowed_users=anybody
 needs_root_rights=yes
 EOF
+
+  # Tearing: without TearFree, page flips are not synchronised to vblank and
+  # horizontal shear is visible on any horizontal motion — which on a signage
+  # screen is most video. Chromium cannot fix this from its side; the flip
+  # happens below it, in the X driver.
+  #
+  # Intel only, and only when the i915 kernel driver is bound. The `modesetting`
+  # driver is Xorg's default for Intel on modern distributions and is the one
+  # that carries this option; writing it for non-Intel hardware would at best do
+  # nothing and at worst pin a wrong driver.
+  if [ "$(uname -m)" = "x86_64" ] && [ -d /sys/module/i915 ]; then
+    log "Enabling TearFree on the Intel display driver"
+    mkdir -p /etc/X11/xorg.conf.d
+    cat > /etc/X11/xorg.conf.d/20-signage-intel.conf <<EOF
+# Installed by signage install.sh. Remove this file and restart
+# signage-player to revert.
+#
+# TearFree makes the driver flip on vblank instead of mid-scanout. Costs a
+# little GPU bandwidth; removes horizontal shear during motion.
+Section "Device"
+  Identifier "Intel Graphics"
+  Driver     "modesetting"
+  Option     "TearFree" "true"
+EndSection
+EOF
+  fi
 fi
 
 log "Installing systemd services"
@@ -302,10 +335,15 @@ if [ "$INSTALL_PLAYER" -eq 1 ]; then
   echo "  Player:  systemctl status signage-player"
 fi
 echo "  CLI:     signage status | signage logs | signage pair <code>"
-if [ -z "$PAIRING_CODE" ]; then
+# Only prompt to pair when the device actually has no credentials. This runs on
+# every re-install, and telling an already-paired screen to pair again is both
+# wrong and alarming.
+if [ -z "$PAIRING_CODE" ] && [ ! -s /var/lib/signage/credentials.json ]; then
   echo
   echo "  No pairing code set yet. Create a screen in the dashboard and run:"
   echo "    signage pair <CODE>"
+elif [ -s /var/lib/signage/credentials.json ]; then
+  echo "  Paired:  yes (existing credentials kept)"
 fi
 
 if [ "$INSTALL_PLAYER" -eq 1 ] && [ -n "$DISPLAY_MANAGER" ]; then

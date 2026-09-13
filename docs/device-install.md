@@ -226,3 +226,13 @@ reversible with `systemctl enable --now display-manager` and
 `install.sh` warns about this at the end of an install when it detects an
 enabled display manager. Installing from a **Lite / server / netinst** image
 avoids it entirely, and is the recommended base for a signage device.
+
+### Tearing
+
+Without vsync at the X level, page flips happen mid-scanout and horizontal
+motion shears. On x86 with the `i915` driver the installer writes
+`/etc/X11/xorg.conf.d/20-signage-intel.conf` enabling `TearFree` on the
+`modesetting` driver.
+
+Remove that file and restart `signage-player` to revert. Chromium flags cannot
+fix this — the flip happens below the browser, in the display driver.
