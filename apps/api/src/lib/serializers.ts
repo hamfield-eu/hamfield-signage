@@ -46,6 +46,8 @@ export function serializeUser(user: User): UserDto {
     name: user.name,
     globalRole: user.globalRole as UserDto['globalRole'],
     mustChangePassword: user.mustChangePassword,
+    // An unconfirmed secret is an abandoned enrollment, not enabled MFA.
+    mfaEnabled: user.mfaConfirmedAt !== null,
     disabledAt: iso(user.disabledAt),
     createdAt: user.createdAt.toISOString(),
   };

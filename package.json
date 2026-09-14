@@ -23,6 +23,7 @@
     "dev:mock-device": "pnpm --filter @signage/mock-device dev",
     "app:create-superadmin": "pnpm --filter @signage/api create-superadmin",
     "app:reset-superadmin-password": "pnpm --filter @signage/api reset-superadmin-password",
+    "app:disable-mfa": "pnpm --filter @signage/api disable-mfa",
     "dev:infra": "docker compose up -d postgres redis minio minio-setup",
     "dev:up": "docker compose up -d",
     "dev:down": "docker compose down"

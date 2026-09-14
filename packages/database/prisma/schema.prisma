@@ -155,6 +155,14 @@ model User {
   /// was added, so pre-existing sessions survive the deploy.
   passwordChangedAt  DateTime?
   disabledAt         DateTime?
+  /// Base32 TOTP secret. Written at enrollment and only *active* once
+  /// mfaConfirmedAt is set - an abandoned enrollment must never lock anyone out.
+  mfaSecret          String?
+  /// When the user proved they could generate a code. NULL = MFA is off.
+  mfaConfirmedAt     DateTime?
+  /// The last 30-second TOTP step accepted for this account. A code is valid
+  /// for its whole window, so without this an observer could replay one.
+  mfaLastStep        Int?
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
@@ -163,8 +171,26 @@ model User {
   emergencyOverrides EmergencyOverride[]
   createdFolders     MediaFolder[]
   auditLogs          AuditLog[]           @relation("AuditActor")
+  mfaRecoveryCodes   MfaRecoveryCode[]
 
   @@map("users")
+}
+
+/// Single-use fallback codes, issued when MFA is turned on. Stored as SHA-256
+/// hashes (like device tokens): they are high-entropy, so bcrypt would only buy
+/// login latency. Used codes are marked, never deleted, so the audit trail and
+/// the "codes remaining" count stay honest.
+model MfaRecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  codeHash  String    @unique
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("mfa_recovery_codes")
 }
 
 model Organization {

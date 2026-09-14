@@ -3,6 +3,39 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- **Two-factor authentication (TOTP)** — opt-in per user from Settings, using any
+  authenticator app (RFC 6238, SHA-1, 6 digits, 30-second steps). Enrollment is
+  two steps, so a secret that was generated but never confirmed is inert and
+  cannot lock anyone out. Ten single-use recovery codes are issued at enrollment
+  and shown exactly once; they are stored as SHA-256 hashes.
+- `POST /auth/login` now answers either `{ status: "ok", token, … }` or
+  `{ status: "mfa_required", challengeId, expiresInSeconds }`. The challenge is
+  an opaque Redis handle — deliberately not a JWT, so no code path can mistake a
+  half-finished login for a session. It is single-use, expires in 5 minutes, and
+  is destroyed after 5 wrong codes.
+- `POST /auth/login/mfa`, `/auth/mfa/setup`, `/auth/mfa/enable`,
+  `/auth/mfa/disable`, `GET /auth/mfa/recovery-codes`. `UserDto` gains
+  `mfaEnabled`.
+- **`pnpm app:disable-mfa -- <email>`** (`node apps/api/dist/cli/disable-mfa.js`
+  in production) — the account-recovery path for a deployment with no outbound
+  email. Clears the MFA columns and recovery codes and nothing else; the password
+  is untouched.
+- `MFA_ISSUER` env var (default `Signage`) — the name authenticator apps display.
+
+### Security
+
+- A TOTP code cannot be replayed inside its own 30-second window: the accepted
+  step is recorded on the account (`users.mfaLastStep`).
+- Turning MFA off from the dashboard re-checks the password, so an unattended
+  unlocked session cannot strip the second factor.
+
+Migration `20260914120000_user_mfa` is additive and nullable throughout: it turns
+MFA on for nobody and logs nobody out.
+
 ## [0.4.0] — 2026-06-16
 
 Media display / fit-mode control across the full stack. Additive on top of v0.3;

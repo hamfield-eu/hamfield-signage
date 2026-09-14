@@ -15,6 +15,7 @@ import {
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { NoOrganizationState } from '../components/RequireOrganization';
+import { MfaCard } from '../components/MfaCard';
 import { useAction, useApi } from '../lib/hooks';
 
 export function SettingsPage() {
@@ -57,6 +58,10 @@ export function SettingsPage() {
             </div>
           ) : null}
         </Card>
+
+        {/* Account security, not organization-scoped: a superadmin in system
+            context must be able to reach it too. */}
+        <MfaCard />
 
         {/* Screen groups are organization-scoped; without an active org we show
             the no-organization state instead of crashing (the old blank-screen bug). */}

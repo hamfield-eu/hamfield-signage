@@ -60,6 +60,48 @@ export const changePasswordSchema = z.object({
   newPassword: passwordSchema,
 });
 
+// ---------- Multi-factor authentication (local TOTP) ----------
+// There is no email or SMS channel in this product, so the only factors are an
+// authenticator app, a printed recovery code, and the server-side CLI.
+
+/** A six-digit authenticator code. Spaces are tolerated: apps display "081 804". */
+export const totpCodeSchema = z
+  .string()
+  .transform((v) => v.replace(/\s/g, ''))
+  .refine((v) => /^\d{6}$/.test(v), { message: 'Enter the 6-digit code from your app' });
+
+/**
+ * A recovery code, e.g. "4KZ9M-QT7WD". Normalized to bare characters so a user
+ * may type it with or without the dash, in any case.
+ */
+export const recoveryCodeSchema = z
+  .string()
+  .transform((v) =>
+    v
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, ''),
+  )
+  .refine((v) => /^[A-Z0-9]{10}$/.test(v), { message: 'Enter a recovery code' });
+
+export const mfaEnableSchema = z.object({
+  code: totpCodeSchema,
+});
+
+/**
+ * Turning MFA off is a downgrade of the account's security, so it re-checks the
+ * password even though the caller already holds a session.
+ */
+export const mfaDisableSchema = z.object({
+  password: z.string().min(1).max(128),
+});
+
+/** Second step of login. `code` is either a TOTP code or a recovery code. */
+export const mfaLoginSchema = z.object({
+  challengeId: z.string().length(64),
+  code: z.string().min(1).max(64),
+});
+
 // ---------- Organizations ----------
 export const createOrgSchema = z.object({
   name: z.string().min(1).max(100),
@@ -471,6 +513,7 @@ export const commandResultSchema = z.object({
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;
+export type MfaLoginInput = z.infer<typeof mfaLoginSchema>;
 export type CreateDeviceInput = z.infer<typeof createDeviceSchema>;
 export type UpdateDeviceInput = z.infer<typeof updateDeviceSchema>;
 export type CreatePlaylistInput = z.infer<typeof createPlaylistSchema>;

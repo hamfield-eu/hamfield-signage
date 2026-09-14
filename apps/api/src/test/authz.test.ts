@@ -202,6 +202,10 @@ describe('authorization matrix', () => {
     const elsewhere = [
       'POST /api/v1/auth/register',
       'POST /api/v1/auth/login',
+      // The second login step: its credential is a Redis challenge, not a token,
+      // so the authenticated/unauthenticated matrix cannot express it. Covered
+      // end-to-end by mfa.test.ts.
+      'POST /api/v1/auth/login/mfa',
       'GET /api/v1/device/ws',
       'GET /health',
       'GET /health/ready',

@@ -28,6 +28,10 @@ const envSchema = z.object({
     .int()
     .default(1024 * 1024 * 1024),
   PAIRING_CODE_TTL_MINUTES: z.coerce.number().int().default(15),
+  // Shown as the account name in authenticator apps. Worth setting per
+  // deployment: every entry otherwise reads "Signage", which is unhelpful for
+  // anyone who administers more than one.
+  MFA_ISSUER: z.string().min(1).max(64).default('Signage'),
   // Install-time superadmin bootstrap (all three must be set to take effect).
   // Empty strings (e.g. compose defaults) are treated as unset.
   INITIAL_SUPERADMIN_EMAIL: z.preprocess(

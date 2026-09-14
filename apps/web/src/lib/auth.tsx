@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import type { AuthResponse, OrganizationDto, UserDto } from '@signage/shared';
+import type { AuthResponse, AuthSuccessResponse, OrganizationDto, UserDto } from '@signage/shared';
 import { api, hasToken, setToken } from './api';
 
 const ORG_KEY = 'signage.orgId';
@@ -22,7 +22,15 @@ interface AuthContextValue {
   isSuperadmin: boolean;
   /** True when a superadmin is acting without an active organization. */
   isSystemContext: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  /**
+   * Signs in. Returns `'ok'` when the session is live, or a challenge id when
+   * the account has MFA on — the caller must then call `completeMfaLogin`.
+   * Deliberately not a boolean: a caller that ignores the result cannot
+   * accidentally treat a half-finished login as a finished one.
+   */
+  login: (email: string, password: string) => Promise<LoginOutcome>;
+  /** Second step of login: exchanges a challenge + code for a session. */
+  completeMfaLogin: (challengeId: string, code: string) => Promise<void>;
   logout: () => void;
   switchOrg: (orgId: string) => void;
   /** Clears the active organization (returns a superadmin to system context). */
@@ -31,6 +39,8 @@ interface AuthContextValue {
   /** Re-fetches /auth/me, e.g. after a forced password change. */
   refreshUser: () => Promise<void>;
 }
+
+export type LoginOutcome = { status: 'ok' } | { status: 'mfa_required'; challengeId: string };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -70,13 +80,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, [apply]);
 
-  const login = useCallback(
-    async (email: string, password: string) => {
-      const response = await api.post<AuthResponse>('/auth/login', { email, password });
+  const finish = useCallback(
+    (response: AuthSuccessResponse) => {
       setToken(response.token);
       apply(response);
     },
     [apply],
+  );
+
+  const login = useCallback(
+    async (email: string, password: string): Promise<LoginOutcome> => {
+      const response = await api.post<AuthResponse>('/auth/login', { email, password });
+      // With MFA on, this response carries no token at all — there is nothing
+      // to store yet, and the challenge id is not a credential.
+      if (response.status === 'mfa_required') {
+        return { status: 'mfa_required', challengeId: response.challengeId };
+      }
+      finish(response);
+      return { status: 'ok' };
+    },
+    [finish],
+  );
+
+  const completeMfaLogin = useCallback(
+    async (challengeId: string, code: string) => {
+      const response = await api.post<AuthSuccessResponse>('/auth/login/mfa', {
+        challengeId,
+        code,
+      });
+      finish(response);
+    },
+    [finish],
   );
 
   const logout = useCallback(() => {
@@ -116,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isSuperadmin,
       isSystemContext: isSuperadmin && !orgId,
       login,
+      completeMfaLogin,
       logout,
       switchOrg,
       enterSystemContext,
@@ -129,6 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       isSuperadmin,
       login,
+      completeMfaLogin,
       logout,
       switchOrg,
       enterSystemContext,

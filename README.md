@@ -31,6 +31,10 @@ through network outages from a local cache.
   playback order modes (manual / alphabetical / random / random with priority
   rules), per-playlist priority rules ("after every X items, play a sponsor"),
   a resolved preview, and one-click cloning. All order modes play offline.
+- **Two-factor authentication** — opt-in TOTP (authenticator app) per user, with
+  ten single-use recovery codes. Local only: no email or SMS anywhere, so a user
+  who loses both is recovered from the server with
+  `pnpm app:disable-mfa -- <email>`. See [docs/api.md](docs/api.md#two-factor-authentication-totp).
 - **Superadmin & accounts** — install-time superadmin, a platform admin area for
   managing organizations and users, forced first-login password change, and an
   audit log of privileged actions. Public self-service registration is disabled.

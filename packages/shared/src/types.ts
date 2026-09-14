@@ -26,6 +26,8 @@ export interface UserDto {
   name: string;
   globalRole: GlobalRole;
   mustChangePassword: boolean;
+  /** True once the user has confirmed an authenticator app (MFA is active). */
+  mfaEnabled: boolean;
   disabledAt?: string | null;
   createdAt: string;
 }
@@ -454,10 +456,37 @@ export interface PairResponse {
   };
 }
 
-export interface AuthResponse {
+/** A completed login: the caller holds a session token. */
+export interface AuthSuccessResponse {
+  status: 'ok';
   token: string;
   user: UserDto;
   organizations: OrganizationDto[];
+}
+
+/**
+ * The password was correct but the account has MFA on. `challengeId` is an
+ * opaque, single-use, server-side handle — it is not a token and grants nothing
+ * on its own. Exchange it at `POST /auth/login/mfa`.
+ */
+export interface MfaChallengeResponse {
+  status: 'mfa_required';
+  challengeId: string;
+  expiresInSeconds: number;
+}
+
+export type AuthResponse = AuthSuccessResponse | MfaChallengeResponse;
+
+/** Returned by `POST /auth/mfa/setup` — nothing is active until confirmed. */
+export interface MfaSetupResponse {
+  secret: string;
+  otpauthUri: string;
+}
+
+/** Recovery codes are returned in the clear exactly once, at enrollment. */
+export interface MfaEnableResponse {
+  ok: true;
+  recoveryCodes: string[];
 }
 
 export interface ApiError {

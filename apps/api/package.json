@@ -12,6 +12,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "create-superadmin": "tsx src/cli/create-superadmin.ts",
     "reset-superadmin-password": "tsx src/cli/reset-superadmin-password.ts",
+    "disable-mfa": "tsx src/cli/disable-mfa.ts",
     "reprocess-media": "tsx src/cli/reprocess-media.ts"
   },
   "dependencies": {

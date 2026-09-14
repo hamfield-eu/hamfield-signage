@@ -363,6 +363,24 @@ export const SUPERADMIN_ROUTES: RouteSpec[] = [
 
 export const AUTH_ROUTES: RouteSpec[] = [
   { method: 'GET', url: () => '/auth/me', access: 'authenticated' },
+  { method: 'GET', url: () => '/auth/mfa/recovery-codes', access: 'authenticated' },
+  { method: 'POST', url: () => '/auth/mfa/setup', access: 'authenticated' },
+  {
+    // Answers 400 for a caller who has not run /setup, which every fixture user
+    // is - correct behaviour, but indistinguishable from an authorization pass
+    // at this matrix's resolution.
+    method: 'POST',
+    url: () => '/auth/mfa/enable',
+    access: 'authenticated',
+    body: () => ({ code: '000000' }),
+    note: 'no enrollment in progress for fixture users, so an allowed caller still gets 400',
+  },
+  {
+    method: 'POST',
+    url: () => '/auth/mfa/disable',
+    access: 'authenticated',
+    body: () => ({ password: FIXTURE_PASSWORD }),
+  },
   {
     // The current password must be the real one: this route answers a wrong
     // one with 401, which is correct behaviour but indistinguishable from

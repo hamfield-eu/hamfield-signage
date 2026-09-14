@@ -26,6 +26,71 @@ There are two authentication schemes:
 Users created with a temporary password have `mustChangePassword=true`; the
 dashboard forces a password change before any other action.
 
+### Two-factor authentication (TOTP)
+
+MFA is **opt-in per user** and local-only: an authenticator app (RFC 6238, SHA-1,
+6 digits, 30-second steps) plus ten single-use recovery codes. There is no email
+or SMS channel anywhere in the product, so the last resort is a server-side CLI —
+see [Recovering a locked-out account](#recovering-a-locked-out-account).
+
+**`POST /auth/login` has two possible outcomes.** Both are `200`; branch on
+`status`:
+
+```jsonc
+// MFA off — unchanged apart from the added discriminator
+{ "status": "ok", "token": "...", "user": { … }, "organizations": [ … ] }
+
+// MFA on — no token is issued yet
+{ "status": "mfa_required", "challengeId": "<64 hex chars>", "expiresInSeconds": 300 }
+```
+
+`challengeId` is **not a credential**. It is an opaque handle held server-side in
+Redis, it authenticates nothing on its own, and it is destroyed on first success,
+after 5 failed attempts, or after 5 minutes — whichever comes first. The attempt
+cap, not the per-IP rate limit, is what puts a 6-digit code out of brute-force
+range.
+
+| Method | Path                       | Notes                                                                                                                                                |
+| ------ | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/auth/login/mfa`          | `{ challengeId, code }` → the same `status: "ok"` body as a direct login. `code` is a 6-digit TOTP **or** a recovery code. Rate-limited 10/min.      |
+| POST   | `/auth/mfa/setup`          | Authenticated. Starts enrollment; returns `{ secret, otpauthUri }`. Nothing is in force yet. `409`-style `400` if MFA is already on.                 |
+| POST   | `/auth/mfa/enable`         | Authenticated. `{ code }` from the app. On success returns `{ ok: true, recoveryCodes: string[] }` — **the only time the codes are readable**.       |
+| POST   | `/auth/mfa/disable`        | Authenticated. `{ password }` — the password is re-checked so a borrowed unlocked tab cannot strip the second factor. Deletes recovery codes. 5/min. |
+| GET    | `/auth/mfa/recovery-codes` | Authenticated. `{ enabled, remaining }` — how many unused codes are left. Never returns the codes themselves.                                        |
+
+`UserDto` carries `mfaEnabled` (from `/auth/login`, `/auth/me`).
+
+**What is stored.** The base32 secret, `mfaConfirmedAt`, and `mfaLastStep` on
+`users`; recovery codes in `mfa_recovery_codes` as SHA-256 hashes (like device
+tokens — they are high-entropy, so bcrypt would only add login latency). Used
+codes are marked, not deleted, so "codes remaining" stays honest.
+
+**Two properties worth knowing about:**
+
+- _Enrollment is two calls._ A secret written by `/setup` is inert until
+  `/enable` proves the user can generate a matching code, so an abandoned
+  enrollment can never lock anyone out.
+- _A TOTP code is single-use._ `mfaLastStep` records the step spent, so a code
+  observed over someone's shoulder cannot be replayed during the rest of its
+  30-second window. One step of clock skew is accepted either side.
+
+### Recovering a locked-out account
+
+A user with neither their authenticator nor a recovery code is recovered by
+someone with shell access to the API host. It clears the MFA columns and
+**nothing else** — the password is untouched, and the user can re-enroll:
+
+```bash
+# development
+pnpm app:disable-mfa -- user@example.com
+
+# production (WORKDIR is the repository root; tsx is not in the image)
+docker compose exec api node apps/api/dist/cli/disable-mfa.js user@example.com
+```
+
+The email match is case-insensitive. An address that matches no account exits
+non-zero rather than reporting success.
+
 ## Organizations & members
 
 | Method | Path                             | Notes                                                                                                     |
