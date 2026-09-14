@@ -105,6 +105,28 @@ describe('show_message command', () => {
     });
   });
 
+  /**
+   * The hop the WS path skips. A device behind a proxy that blocks websockets
+   * polls for its commands instead, and reads the stored payload directly —
+   * so a serializer that dropped or reshaped `payload` would break exactly the
+   * devices least able to tell anyone about it.
+   */
+  it('reaches a polling device with the payload intact', async () => {
+    await send({ text: 'Closing at 4pm today', durationSeconds: 60 });
+
+    const res = await call(app, {
+      method: 'GET',
+      url: '/api/v1/device/commands',
+      token: fx.a.deviceToken,
+    });
+    expect(res.statusCode).toBe(200);
+
+    const command = res.json().commands.find((c: { type: string }) => c.type === 'show_message');
+    expect(command).toBeDefined();
+    // Exactly the shape the agent's `run()` reads, key for key.
+    expect(command.payload).toEqual({ text: 'Closing at 4pm today', durationSeconds: 60 });
+  });
+
   it('still refuses a viewer, like every other command', async () => {
     const res = await call(app, {
       method: 'POST',
