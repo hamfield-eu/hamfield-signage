@@ -21,9 +21,9 @@ through network outages from a local cache.
   into S3/MinIO storage.
 - **Portrait and landscape** — four screen orientations, per-item fit modes
   (`contain`, `cover`, `stretch`, `original`).
-- **14 remote commands** — restart player, reboot, refresh content, clear cache,
-  screenshot, identify, set orientation/playlist/settings, emergency start/stop,
-  send logs, health check, software update.
+- **15 remote commands** — restart player, reboot, refresh content, clear cache,
+  screenshot, identify, show a message on screen, set orientation/playlist/settings,
+  emergency start/stop, send logs, health check, software update.
 - **Media folders** — nestable, organization-scoped folders (a logical grouping;
   storage objects never move), with bulk move, cross-folder search, play counts,
   and safe-delete warnings.

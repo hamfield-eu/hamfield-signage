@@ -115,6 +115,20 @@ export class CommandExecutor {
         return { durationSeconds: duration };
       }
 
+      case 'show_message': {
+        // The API validates this payload, but the agent must not depend on that:
+        // commands also arrive over the polling fallback, and a device running
+        // against an older or a hand-driven backend still has to behave.
+        const text = typeof command.payload.text === 'string' ? command.payload.text.trim() : '';
+        if (!text) throw new Error('show_message requires payload.text');
+        const duration =
+          typeof command.payload.durationSeconds === 'number' && command.payload.durationSeconds > 0
+            ? command.payload.durationSeconds
+            : 10;
+        playerServer.sendShowMessage(text, duration);
+        return { text, durationSeconds: duration };
+      }
+
       // The backend already mutated org/device state for these; the device
       // just needs to pull the new manifest and re-render.
       case 'set_orientation':

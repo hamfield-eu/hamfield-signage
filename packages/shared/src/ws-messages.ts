@@ -162,7 +162,24 @@ export interface AgentToPlayerIdentifyMessage {
   durationSeconds: number;
 }
 
-export type AgentToPlayerMessage = AgentToPlayerStateMessage | AgentToPlayerIdentifyMessage;
+/**
+ * Operator text to put on the screen, e.g. "Closing at 4pm today".
+ *
+ * A separate message type rather than a `text` field on identify: the player is
+ * a browser, and a kiosk that has not reloaded is running yesterday's bundle
+ * against today's agent. An unknown message type is ignored by an old player;
+ * a changed one would render `undefined` across the screen.
+ */
+export interface AgentToPlayerShowMessageMessage {
+  type: 'show_message';
+  text: string;
+  durationSeconds: number;
+}
+
+export type AgentToPlayerMessage =
+  | AgentToPlayerStateMessage
+  | AgentToPlayerIdentifyMessage
+  | AgentToPlayerShowMessageMessage;
 
 export interface PlayerPlaybackEventMessage {
   type: 'playback_event';

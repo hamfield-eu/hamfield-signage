@@ -169,6 +169,36 @@ export const issueCommandSchema = z.object({
   payload: z.record(z.unknown()).default({}),
 });
 
+/**
+ * Payload for `show_message`: operator-typed text, shown full-screen on the
+ * device for a few seconds, exactly like `identify`.
+ *
+ * The length cap is not arbitrary. The overlay renders at a size meant to be
+ * read from across a room, so a pasted paragraph is an unreadable wall rather
+ * than a message — the limit keeps the feature honest about what it is. The
+ * text reaches the player as `textContent`, never as markup.
+ */
+export const SHOW_MESSAGE_MAX_LENGTH = 280;
+export const SHOW_MESSAGE_DEFAULT_SECONDS = 10;
+export const SHOW_MESSAGE_MAX_SECONDS = 300;
+
+export const showMessagePayloadSchema = z.object({
+  text: z.string().trim().min(1).max(SHOW_MESSAGE_MAX_LENGTH),
+  /**
+   * Capped at five minutes: the overlay covers the playlist while it is up, so
+   * a typo'd duration must not take a screen out of service for an afternoon.
+   * Anything longer is a job for an emergency override, which is designed for it.
+   */
+  durationSeconds: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(SHOW_MESSAGE_MAX_SECONDS)
+    .default(SHOW_MESSAGE_DEFAULT_SECONDS),
+});
+
+export type ShowMessagePayload = z.infer<typeof showMessagePayloadSchema>;
+
 // ---------- Media folders ----------
 export const createFolderSchema = z.object({
   name: z.string().min(1).max(120),

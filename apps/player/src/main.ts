@@ -34,7 +34,7 @@ const fbMessage = document.getElementById('fb-message') as HTMLDivElement;
 const fbPaired = document.getElementById('fb-paired') as HTMLSpanElement;
 const fbOnline = document.getElementById('fb-online') as HTMLSpanElement;
 const fbClock = document.getElementById('fb-clock') as HTMLDivElement;
-const identifyEl = document.getElementById('identify') as HTMLDivElement;
+const overlayEl = document.getElementById('overlay') as HTMLDivElement;
 const offlineDot = document.getElementById('offline-dot') as HTMLDivElement;
 
 let socket: WebSocket | null = null;
@@ -637,17 +637,24 @@ function reportProgress(): void {
 
 window.setInterval(reportProgress, PLAYER_PROGRESS_INTERVAL_MS);
 
-// --------------------------------------------------------------- identify
+// ---------------------------------------------------------------- overlays
 
-let identifyTimer: number | null = null;
+/**
+ * `identify` and `show_message` share one element and one timer, so the newer
+ * of the two always replaces the older. Two overlays could otherwise sit on
+ * screen at once, with whichever happened to be later in the DOM winning — and
+ * the operator who sent the second one would have no way to tell why.
+ */
+let overlayTimer: number | null = null;
 
-function showIdentify(deviceName: string, durationSeconds: number): void {
-  identifyEl.textContent = deviceName;
-  identifyEl.classList.remove('hidden');
-  if (identifyTimer !== null) window.clearTimeout(identifyTimer);
-  identifyTimer = window.setTimeout(() => {
-    identifyEl.classList.add('hidden');
-    identifyTimer = null;
+function showOverlay(text: string, durationSeconds: number, variant: 'identify' | 'message'): void {
+  overlayEl.textContent = text;
+  overlayEl.classList.toggle('message', variant === 'message');
+  overlayEl.classList.remove('hidden');
+  if (overlayTimer !== null) window.clearTimeout(overlayTimer);
+  overlayTimer = window.setTimeout(() => {
+    overlayEl.classList.add('hidden');
+    overlayTimer = null;
   }, durationSeconds * 1000);
 }
 
@@ -666,7 +673,9 @@ function connect(): void {
     if (message.type === 'state') {
       applyState(message.state);
     } else if (message.type === 'identify') {
-      showIdentify(message.deviceName, message.durationSeconds);
+      showOverlay(message.deviceName, message.durationSeconds, 'identify');
+    } else if (message.type === 'show_message') {
+      showOverlay(message.text, message.durationSeconds, 'message');
     }
   };
   socket.onclose = () => {

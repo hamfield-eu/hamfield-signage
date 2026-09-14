@@ -8,7 +8,12 @@
  * regression test for F1 is worth anything.
  */
 import { vi } from 'vitest';
-import type { PlayerState, PlayerStateItem, PlayerToAgentMessage } from '@signage/shared';
+import type {
+  AgentToPlayerMessage,
+  PlayerState,
+  PlayerStateItem,
+  PlayerToAgentMessage,
+} from '@signage/shared';
 
 const STAGE_HTML = `
   <div id="stage">
@@ -25,7 +30,7 @@ const STAGE_HTML = `
         <div id="fb-clock"></div>
       </div>
     </div>
-    <div id="identify" class="hidden"></div>
+    <div id="overlay" class="hidden"></div>
     <div id="offline-dot" class="hidden"></div>
   </div>
 `;
@@ -35,6 +40,8 @@ export interface Harness {
   sent: PlayerToAgentMessage[];
   /** Pushes a PlayerState to the player, as the agent would. */
   pushState: (state: PlayerState) => void;
+  /** Pushes any agent message — identify, show_message — down the socket. */
+  push: (message: AgentToPlayerMessage) => void;
   /** The <video> currently on screen, if any. */
   video: () => HTMLVideoElement | null;
   /** Moves a video's position and fires `timeupdate`, as a real element would. */
@@ -225,6 +232,9 @@ export async function startPlayer(): Promise<Harness> {
     sent,
     pushState: (state) => {
       socket?.onmessage?.({ data: JSON.stringify({ type: 'state', state }) });
+    },
+    push: (message) => {
+      socket?.onmessage?.({ data: JSON.stringify(message) });
     },
     video,
     tick,

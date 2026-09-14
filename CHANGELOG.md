@@ -26,6 +26,14 @@ based on [Keep a Changelog](https://keepachangelog.com/).
   is untouched.
 - `MFA_ISSUER` env var (default `Signage`) — the name authenticator apps display.
 
+- **`show_message` command** — put custom text on a screen from the dashboard
+  (device → Commands), using the same full-screen overlay as Identify. 1–280
+  characters, 10 seconds to 5 minutes. Playback continues underneath and is
+  never interrupted; the overlay simply covers it, then clears itself.
+  `identify` and `show_message` now share one overlay element and one timer in
+  the player, so the newer of the two replaces the older rather than two layers
+  fighting over the same z-index.
+
 ### Security
 
 - A TOTP code cannot be replayed inside its own 30-second window: the accepted

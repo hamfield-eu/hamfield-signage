@@ -145,7 +145,13 @@ body {
   color: #cbd5e1;
 }
 
-#identify {
+/*
+ * One overlay serves both `identify` and `show_message`. They are mutually
+ * exclusive by nature — each is an operator saying "put this on the screen
+ * now" — so sharing an element makes the newer one replace the older instead
+ * of two absolutely-positioned layers fighting over the same z-index.
+ */
+#overlay {
   position: absolute;
   inset: 0;
   display: flex;
@@ -158,6 +164,20 @@ body {
   text-align: center;
   z-index: 20;
   padding: 0 5vw;
+  /* A long message must wrap and break rather than run off the screen. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * A device name is a few words, read from across a room. An operator message
+ * can run to a couple of sentences, so it steps down a size and relaxes the
+ * weight — still legible at a distance, but it fits.
+ */
+#overlay.message {
+  font-size: 5vmin;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 #offline-dot {

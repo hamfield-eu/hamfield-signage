@@ -147,13 +147,30 @@ non-zero rather than reporting success.
 ### Command types
 
 `restart_player`, `reboot_device`, `refresh_content`, `clear_cache`,
-`take_screenshot`, `identify`, `set_orientation`, `set_playlist`,
-`update_settings`, `show_emergency`, `stop_emergency`, `send_logs`,
-`health_check`, `software_update`.
+`take_screenshot`, `identify`, `show_message`, `set_orientation`,
+`set_playlist`, `update_settings`, `show_emergency`, `stop_emergency`,
+`send_logs`, `health_check`, `software_update`.
 
 `set_orientation` takes `payload: { orientation?: 'landscape' | 'portrait', rotation?: 0 | 90 | 180 | 270 }`
 — send either or both. `orientation` is the content canvas shape; `rotation` is
 software compensation for how the panel is physically mounted.
+
+`show_message` takes `payload: { text, durationSeconds? }` and puts operator
+text on the screen using the same full-screen overlay as `identify`:
+
+- `text` — 1–280 characters, trimmed. Rendered as text, never as markup. The cap
+  is about legibility: the overlay is sized to be read across a room, so a
+  pasted paragraph is a wall, not a message.
+- `durationSeconds` — 1–300, default 10. The overlay **covers the playlist**
+  while it is up (playback continues underneath and is never interrupted), so
+  the ceiling is deliberate: anything longer-lived is an emergency override,
+  which is built for it.
+
+The payload is validated and normalized before the command row is written, so
+what is stored is exactly what the device is told to do — which matters because
+a device on the polling fallback reads that row directly. The text is recorded
+in the audit log: who put what on a public screen is the question that log
+exists to answer.
 
 ## Device groups
 

@@ -76,6 +76,7 @@ export const COMMAND_TYPES = [
   'clear_cache',
   'take_screenshot',
   'identify',
+  'show_message',
   'set_orientation',
   'set_playlist',
   'update_settings',

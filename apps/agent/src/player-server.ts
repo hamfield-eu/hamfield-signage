@@ -40,7 +40,8 @@ function connect(){
   ws.onopen=()=>ws.send(JSON.stringify({type:'player_ready'}));
   ws.onmessage=(e)=>{const msg=JSON.parse(e.data);
     if(msg.type==='state'){el.textContent=msg.state.statusMessage||('Playlist: '+(msg.state.playlistName||'none')+' ('+msg.state.items.length+' items) - install the full player UI for playback');}
-    if(msg.type==='identify'){el.textContent='I am '+msg.deviceName;}};
+    if(msg.type==='identify'){el.textContent='I am '+msg.deviceName;}
+    if(msg.type==='show_message'){el.textContent=msg.text;}};
   ws.onclose=()=>setTimeout(connect,2000);
 }
 connect();
@@ -155,6 +156,10 @@ export class PlayerServer {
 
   sendIdentify(deviceName: string, durationSeconds: number): void {
     this.broadcast({ type: 'identify', deviceName, durationSeconds });
+  }
+
+  sendShowMessage(text: string, durationSeconds: number): void {
+    this.broadcast({ type: 'show_message', text, durationSeconds });
   }
 
   /** Closes player sockets; the player UI reconnects and reloads its state. */

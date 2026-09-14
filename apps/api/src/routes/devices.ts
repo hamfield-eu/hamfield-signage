@@ -4,6 +4,7 @@ import {
   DEVICE_ROTATIONS,
   createDeviceSchema,
   issueCommandSchema,
+  showMessagePayloadSchema,
   updateDeviceSchema,
   type DeviceOrientation,
   type DeviceRotation,
@@ -289,6 +290,16 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
         where: { id: device.id },
         data: { defaultPlaylistId: playlistId },
       });
+    } else if (body.type === 'show_message') {
+      // Unlike the branches around it, this one mutates nothing server-side —
+      // it only rejects a payload the device would have to cope with. Parsing
+      // here also normalizes the default duration, so what is stored on the
+      // command row is exactly what the device is told to do.
+      const parsed = showMessagePayloadSchema.safeParse(body.payload);
+      if (!parsed.success) {
+        throw badRequest(parsed.error.issues[0]?.message ?? 'Invalid show_message payload');
+      }
+      body.payload = parsed.data;
     } else if (body.type === 'update_settings') {
       const { name, timezone } = body.payload as { name?: unknown; timezone?: unknown };
       await prisma.device.update({

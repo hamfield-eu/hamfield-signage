@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type {
   DeviceCommandDto,
@@ -7,7 +7,12 @@ import type {
   DeviceLogDto,
   PlaylistDto,
 } from '@signage/shared';
-import { rotationSwapsAxes, suggestPlaybackProfile } from '@signage/shared';
+import {
+  SHOW_MESSAGE_DEFAULT_SECONDS,
+  SHOW_MESSAGE_MAX_LENGTH,
+  rotationSwapsAxes,
+  suggestPlaybackProfile,
+} from '@signage/shared';
 import {
   Badge,
   Button,
@@ -587,6 +592,73 @@ function SettingsTab({
   );
 }
 
+/**
+ * Puts operator text on the screen, the same full-screen overlay `identify`
+ * uses. It is a form rather than another entry in COMMAND_BUTTONS because
+ * every button in that grid is a one-click action, and this one needs to be
+ * composed first — sending the wrong text to a screen in a public space is
+ * not an undoable action.
+ */
+function ShowMessageCard({
+  busy,
+  onSend,
+}: {
+  busy: boolean;
+  onSend: (payload: Record<string, unknown>) => void;
+}) {
+  const [text, setText] = useState('');
+  const [durationSeconds, setDurationSeconds] = useState(SHOW_MESSAGE_DEFAULT_SECONDS);
+
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    onSend({ text: trimmed, durationSeconds });
+    setText('');
+  };
+
+  const remaining = SHOW_MESSAGE_MAX_LENGTH - text.length;
+
+  return (
+    <Card title="Show a message on screen">
+      <form onSubmit={onSubmit} className="space-y-3">
+        <Field label="Message">
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value.slice(0, SHOW_MESSAGE_MAX_LENGTH))}
+            rows={2}
+            maxLength={SHOW_MESSAGE_MAX_LENGTH}
+            placeholder="Closing at 4pm today"
+            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </Field>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="w-40">
+            <Field label="Show for">
+              <Select
+                value={durationSeconds}
+                onChange={(e) => setDurationSeconds(Number(e.target.value))}
+              >
+                {[10, 30, 60, 120, 300].map((seconds) => (
+                  <option key={seconds} value={seconds}>
+                    {seconds < 60 ? `${seconds} seconds` : `${seconds / 60} minutes`}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <Button type="submit" small disabled={busy || text.trim().length === 0}>
+            Show on screen
+          </Button>
+          <span className="text-xs text-slate-400">
+            {remaining} characters left · covers the playlist while shown
+          </span>
+        </div>
+      </form>
+    </Card>
+  );
+}
+
 function CommandsTab({ orgId, device }: { orgId: string; device: DeviceDto }) {
   const commands = useApi(
     () => api.get<DeviceCommandDto[]>(`/orgs/${orgId}/devices/${device.id}/commands`),
@@ -594,8 +666,8 @@ function CommandsTab({ orgId, device }: { orgId: string; device: DeviceDto }) {
     { refreshMs: 5_000 },
   );
 
-  const issue = useAction(async (type: string) => {
-    await api.post(`/orgs/${orgId}/devices/${device.id}/commands`, { type, payload: {} });
+  const issue = useAction(async (type: string, payload: Record<string, unknown> = {}) => {
+    await api.post(`/orgs/${orgId}/devices/${device.id}/commands`, { type, payload });
     commands.reload();
   });
 
@@ -622,6 +694,8 @@ function CommandsTab({ orgId, device }: { orgId: string; device: DeviceDto }) {
           <ErrorNote message={issue.error} />
         </div>
       </Card>
+
+      <ShowMessageCard busy={issue.busy} onSend={(payload) => issue.run('show_message', payload)} />
 
       <Card
         title="Recent commands"
