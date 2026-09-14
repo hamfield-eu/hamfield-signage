@@ -8,6 +8,7 @@ import {
   OnlineDot,
   PageHeader,
   Spinner,
+  TableCard,
   Td,
   Th,
 } from '../components/ui';
@@ -58,7 +59,7 @@ export function MonitoringPage() {
 
       {devices.data ? (
         <>
-          <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
+          <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
             <StatCard label="Screens" value={list.length} />
             <StatCard label="Online" value={online.length} tone="text-green-600" />
             <StatCard
@@ -84,7 +85,7 @@ export function MonitoringPage() {
               hint="Add a screen on the Screens page to start monitoring."
             />
           ) : (
-            <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+            <TableCard>
               <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                   <tr>
@@ -151,7 +152,7 @@ export function MonitoringPage() {
                   })}
                 </tbody>
               </table>
-            </div>
+            </TableCard>
           )}
         </>
       ) : null}

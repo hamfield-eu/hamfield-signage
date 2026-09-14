@@ -328,7 +328,7 @@ export function PlaylistEditorPage() {
               <ul className="divide-y divide-slate-100">
                 {items.map((item, index) => (
                   <li key={item.key} className="py-2.5">
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                       <div className="flex flex-col gap-0.5">
                         <button
                           className="text-slate-400 hover:text-slate-700 disabled:opacity-30"
@@ -362,7 +362,7 @@ export function PlaylistEditorPage() {
                           </span>
                         )}
                       </div>
-                      <div className="min-w-0 flex-1">
+                      <div className="min-w-[10rem] flex-1">
                         <p className="truncate text-sm font-medium text-slate-800">
                           {item.type === 'folder' ? (item.folderPath ?? item.label) : item.label}
                         </p>
@@ -389,63 +389,67 @@ export function PlaylistEditorPage() {
                           )}
                         </p>
                       </div>
-                      <div className="w-24">
-                        <Input
-                          type="number"
-                          min={1}
-                          placeholder={
-                            item.type === 'folder' || item.mediaType === 'image'
-                              ? String(defaultDuration)
-                              : 'auto'
-                          }
-                          value={item.durationSeconds ?? ''}
-                          title="Duration in seconds (empty = default)"
-                          onChange={(e) =>
-                            mutate((list) =>
-                              list.map((x) =>
-                                x.key === item.key
-                                  ? {
-                                      ...x,
-                                      durationSeconds: e.target.value
-                                        ? Number(e.target.value)
-                                        : null,
-                                    }
-                                  : x,
-                              ),
-                            )
-                          }
-                        />
+                      <div className="flex w-full items-center gap-3 sm:w-auto">
+                        <div className="w-24">
+                          <Input
+                            type="number"
+                            min={1}
+                            placeholder={
+                              item.type === 'folder' || item.mediaType === 'image'
+                                ? String(defaultDuration)
+                                : 'auto'
+                            }
+                            value={item.durationSeconds ?? ''}
+                            title="Duration in seconds (empty = default)"
+                            onChange={(e) =>
+                              mutate((list) =>
+                                list.map((x) =>
+                                  x.key === item.key
+                                    ? {
+                                        ...x,
+                                        durationSeconds: e.target.value
+                                          ? Number(e.target.value)
+                                          : null,
+                                      }
+                                    : x,
+                                ),
+                              )
+                            }
+                          />
+                        </div>
+                        <div className="w-28 text-xs text-slate-500" title="Fit mode">
+                          {FIT_MODE_INFO[item.fitMode ?? 'contain'].label}
+                          {item.fitMode ? '' : ' (default)'}
+                        </div>
+                        <label
+                          className="flex items-center gap-1 text-xs text-slate-500"
+                          title="Enabled"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={item.enabled}
+                            onChange={(e) =>
+                              mutate((list) =>
+                                list.map((x) =>
+                                  x.key === item.key ? { ...x, enabled: e.target.checked } : x,
+                                ),
+                              )
+                            }
+                          />
+                          on
+                        </label>
+                        <Button
+                          variant="ghost"
+                          small
+                          onClick={() => mutate((list) => list.filter((x) => x.key !== item.key))}
+                        >
+                          Remove
+                        </Button>
                       </div>
-                      <div className="w-28 text-xs text-slate-500" title="Fit mode">
-                        {FIT_MODE_INFO[item.fitMode ?? 'contain'].label}
-                        {item.fitMode ? '' : ' (default)'}
-                      </div>
-                      <label
-                        className="flex items-center gap-1 text-xs text-slate-500"
-                        title="Enabled"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={item.enabled}
-                          onChange={(e) =>
-                            mutate((list) =>
-                              list.map((x) =>
-                                x.key === item.key ? { ...x, enabled: e.target.checked } : x,
-                              ),
-                            )
-                          }
-                        />
-                        on
-                      </label>
-                      <Button
-                        variant="ghost"
-                        small
-                        onClick={() => mutate((list) => list.filter((x) => x.key !== item.key))}
-                      >
-                        Remove
-                      </Button>
                     </div>
-                    <details className="ml-[6.5rem] mt-2">
+                    {/* The indent lines this up under the title on a wide row;
+                        on a phone the row has wrapped, so it only wastes space. */}
+                    <details className="mt-2 sm:ml-[6.5rem]">
                       <summary className="cursor-pointer text-xs font-medium text-slate-500">
                         Display settings
                       </summary>

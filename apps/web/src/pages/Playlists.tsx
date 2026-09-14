@@ -11,6 +11,7 @@ import {
   Modal,
   PageHeader,
   Spinner,
+  TableCard,
   Td,
   Th,
 } from '../components/ui';
@@ -59,7 +60,7 @@ export function PlaylistsPage() {
       ) : null}
 
       {playlists.data && playlists.data.length > 0 ? (
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <TableCard>
           <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-slate-50">
               <tr>
@@ -119,7 +120,7 @@ export function PlaylistsPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableCard>
       ) : null}
 
       {showCreate ? (

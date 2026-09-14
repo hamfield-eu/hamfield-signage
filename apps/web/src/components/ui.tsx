@@ -82,7 +82,7 @@ export function Card({
   return (
     <section className={`rounded-lg border border-slate-200 bg-white shadow-sm ${className}`}>
       {title !== undefined || actions !== undefined ? (
-        <header className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
           <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
           {actions}
         </header>
@@ -147,7 +147,7 @@ export function ErrorNote({ message }: { message: string | null }) {
 
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
-    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center sm:p-10">
       <p className="text-sm font-medium text-slate-600">{title}</p>
       {hint ? <p className="mt-1 text-xs text-slate-500">{hint}</p> : null}
     </div>
@@ -187,7 +187,9 @@ export function Modal({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 pt-16"
+      // pt-16 on a phone wastes a quarter of the screen and pushes the actions
+      // of a long form below the fold; the roomier offset starts at sm.
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-3 pt-6 sm:p-4 sm:pt-16"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -209,14 +211,86 @@ export function Modal({
   );
 }
 
-export function Th({ children }: { children?: ReactNode }) {
+/*
+ * `whitespace-nowrap` is what makes a table usable on a phone, and it is not
+ * obvious why.
+ *
+ * These tables are `min-w-full` with auto layout, so in a 343px viewport the
+ * table does NOT overflow — it shrinks to fit by wrapping cell text, giving
+ * seven ~49px columns of one word per line and no scrollbar to escape with.
+ * Wrapping a container in `overflow-x-auto` changes nothing on its own,
+ * because nothing ever overflows.
+ *
+ * Holding each cell on one line gives the table a real intrinsic minimum
+ * width. It then genuinely overflows, and TableCard's scroll container
+ * engages. Pass `className` to opt a column out where wrapping is wanted;
+ * `truncate` already implies nowrap, so cells that use it are unaffected.
+ */
+export function Th({
+  children,
+  className = '',
+  wrap,
+}: {
+  children?: ReactNode;
+  className?: string;
+  wrap?: boolean;
+}) {
   return (
-    <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+    <th
+      className={`${wrap ? '' : 'whitespace-nowrap'} px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 ${className}`}
+    >
       {children}
     </th>
   );
 }
 
-export function Td({ children, className = '' }: { children?: ReactNode; className?: string }) {
-  return <td className={`px-3 py-2.5 text-sm text-slate-700 ${className}`}>{children}</td>;
+export function Td({
+  children,
+  className = '',
+  wrap,
+}: {
+  children?: ReactNode;
+  className?: string;
+  /**
+   * Lets this cell's text wrap — for long free text such as a log line, where
+   * one unbroken row would make the horizontal scroll useless.
+   *
+   * A prop rather than a `whitespace-normal` in `className`, because both
+   * classes set the same property at the same specificity: which one won would
+   * depend on Tailwind's output order, not on the order they are written here.
+   */
+  wrap?: boolean;
+}) {
+  return (
+    <td
+      className={`${wrap ? '' : 'whitespace-nowrap'} px-3 py-2.5 text-sm text-slate-700 ${className}`}
+    >
+      {children}
+    </td>
+  );
+}
+
+/**
+ * Card-framed table that scrolls sideways instead of clipping.
+ *
+ * Every table in the app previously sat directly in a box with
+ * `overflow-hidden`, which on a narrow screen hides the right-hand columns with
+ * no way to reach them. The scroll lives on an inner element so the card keeps
+ * its rounded corners — putting `overflow-x` on the bordered box itself clips
+ * them square.
+ */
+export function TableCard({
+  children,
+  className = '',
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm ${className}`}
+    >
+      <div className="overflow-x-auto">{children}</div>
+    </div>
+  );
 }

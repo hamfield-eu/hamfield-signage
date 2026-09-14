@@ -11,6 +11,7 @@ import {
   PageHeader,
   Select,
   Spinner,
+  TableCard,
   Td,
   Th,
 } from '../components/ui';
@@ -52,7 +53,7 @@ export function SuperadminUsersPage() {
       {users.data && users.data.length === 0 ? <EmptyState title="No users" /> : null}
 
       {users.data && users.data.length > 0 ? (
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <TableCard>
           <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-slate-50">
               <tr>
@@ -134,7 +135,7 @@ export function SuperadminUsersPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableCard>
       ) : null}
 
       {showCreate ? (
@@ -226,7 +227,7 @@ function CreateUserModal({
             required
           />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Company (optional)">
             <Select value={organizationId} onChange={(e) => setOrganizationId(e.target.value)}>
               <option value="">No company</option>

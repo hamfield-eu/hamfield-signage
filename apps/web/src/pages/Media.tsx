@@ -184,9 +184,11 @@ export function MediaPage() {
         }
       />
 
-      <div className="flex gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row">
         {/* ------------------------------------------------ folder sidebar */}
-        <aside className="w-60 shrink-0">
+        {/* Full width above the grid on a phone, a real sidebar from lg up:
+            240px of a 375px screen is most of it. */}
+        <aside className="w-full shrink-0 lg:w-60">
           <div className="rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
             {[
               { key: 'all' as const, label: 'All media', icon: '🗂' },
@@ -273,7 +275,7 @@ export function MediaPage() {
           </div>
 
           <div className="mb-4 flex flex-wrap gap-2">
-            <div className="w-56">
+            <div className="min-w-[12rem] grow basis-full sm:basis-64">
               <Input
                 placeholder={view === 'all' ? 'Search all folders…' : 'Search in this view…'}
                 value={search}
@@ -283,7 +285,7 @@ export function MediaPage() {
                 }}
               />
             </div>
-            <div className="w-32">
+            <div className="min-w-[8rem] grow basis-[calc(50%-0.25rem)] sm:basis-32">
               <Select
                 value={type}
                 onChange={(e) => {
@@ -296,7 +298,7 @@ export function MediaPage() {
                 <option value="video">Videos</option>
               </Select>
             </div>
-            <div className="w-36">
+            <div className="min-w-[8.5rem] grow basis-[calc(50%-0.25rem)] sm:basis-36">
               <Select
                 value={orientation}
                 onChange={(e) => {
@@ -310,7 +312,7 @@ export function MediaPage() {
                 <option value="square">Square</option>
               </Select>
             </div>
-            <div className="w-36">
+            <div className="min-w-[8.5rem] grow basis-[calc(50%-0.25rem)] sm:basis-36">
               <Select
                 value={status}
                 onChange={(e) => {
@@ -325,7 +327,7 @@ export function MediaPage() {
                 <option value="failed">Failed</option>
               </Select>
             </div>
-            <div className="w-40">
+            <div className="min-w-[9rem] grow basis-[calc(50%-0.25rem)] sm:basis-40">
               <Select
                 value={usedInPlaylist}
                 onChange={(e) => {
@@ -338,7 +340,7 @@ export function MediaPage() {
                 <option value="false">Not in a playlist</option>
               </Select>
             </div>
-            <div className="w-44">
+            <div className="min-w-[10rem] grow basis-[calc(50%-0.25rem)] sm:basis-44">
               <Select
                 value={sort}
                 onChange={(e) => {

@@ -105,12 +105,14 @@ export function DeviceDetailPage() {
         }
       />
 
-      <div className="mb-4 flex gap-1 border-b border-slate-200">
+      {/* Four tabs at px-4 are wider than a phone; scroll them rather than
+          wrap, so the underline stays one continuous rule. */}
+      <div className="mb-4 flex gap-1 overflow-x-auto border-b border-slate-200">
         {TABS.map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${
+            className={`-mb-px whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium ${
               tab === t
                 ? 'border-blue-600 text-blue-700'
                 : 'border-transparent text-slate-500 hover:text-slate-700'
@@ -135,7 +137,7 @@ export function DeviceDetailPage() {
 
 function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="rounded-md bg-slate-50 px-3 py-2">
+    <div className="min-w-0 rounded-md bg-slate-50 px-3 py-2">
       <div className="text-xs text-slate-500">{label}</div>
       <div className="mt-0.5 truncate text-sm font-medium text-slate-800">{value}</div>
     </div>
@@ -456,7 +458,7 @@ function SettingsTab({
           <Field label="Description">
             <Input value={description} onChange={(e) => setDescription(e.target.value)} />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Content orientation" hint="Shape of the content the audience sees">
               <Select
                 value={orientation}
@@ -710,40 +712,42 @@ function CommandsTab({ orgId, device }: { orgId: string; device: DeviceDto }) {
           <p className="text-sm text-slate-500">No commands sent yet.</p>
         ) : null}
         {commands.data && commands.data.length > 0 ? (
-          <table className="min-w-full divide-y divide-slate-200">
-            <thead>
-              <tr>
-                <Th>Command</Th>
-                <Th>Status</Th>
-                <Th>Created</Th>
-                <Th>Completed</Th>
-                <Th>Result</Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {commands.data.map((cmd) => (
-                <tr key={cmd.id}>
-                  <Td>
-                    <code className="text-xs">{cmd.type}</code>
-                  </Td>
-                  <Td>
-                    <Badge tone={STATUS_TONE[cmd.status] ?? 'gray'}>{cmd.status}</Badge>
-                  </Td>
-                  <Td>{timeAgo(cmd.createdAt)}</Td>
-                  <Td>{cmd.completedAt ? timeAgo(cmd.completedAt) : '—'}</Td>
-                  <Td className="max-w-xs">
-                    {cmd.result ? (
-                      <code className="block truncate text-xs text-slate-500">
-                        {JSON.stringify(cmd.result)}
-                      </code>
-                    ) : (
-                      '—'
-                    )}
-                  </Td>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200">
+              <thead>
+                <tr>
+                  <Th>Command</Th>
+                  <Th>Status</Th>
+                  <Th>Created</Th>
+                  <Th>Completed</Th>
+                  <Th>Result</Th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {commands.data.map((cmd) => (
+                  <tr key={cmd.id}>
+                    <Td>
+                      <code className="text-xs">{cmd.type}</code>
+                    </Td>
+                    <Td>
+                      <Badge tone={STATUS_TONE[cmd.status] ?? 'gray'}>{cmd.status}</Badge>
+                    </Td>
+                    <Td>{timeAgo(cmd.createdAt)}</Td>
+                    <Td>{cmd.completedAt ? timeAgo(cmd.completedAt) : '—'}</Td>
+                    <Td className="max-w-xs">
+                      {cmd.result ? (
+                        <code className="block truncate text-xs text-slate-500">
+                          {JSON.stringify(cmd.result)}
+                        </code>
+                      ) : (
+                        '—'
+                      )}
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : null}
       </Card>
     </div>
@@ -779,7 +783,7 @@ function LogsTab({ orgId, deviceId }: { orgId: string; deviceId: string }) {
         <p className="text-sm text-slate-500">No logs received from this device yet.</p>
       ) : null}
       {logs.data && logs.data.length > 0 ? (
-        <div className="max-h-[32rem] overflow-y-auto">
+        <div className="max-h-[32rem] overflow-auto">
           <table className="min-w-full divide-y divide-slate-200">
             <thead>
               <tr>
@@ -791,11 +795,11 @@ function LogsTab({ orgId, deviceId }: { orgId: string; deviceId: string }) {
             <tbody className="divide-y divide-slate-100">
               {logs.data.map((log) => (
                 <tr key={log.id}>
-                  <Td className="whitespace-nowrap">{formatDateTime(log.loggedAt)}</Td>
+                  <Td>{formatDateTime(log.loggedAt)}</Td>
                   <Td>
                     <Badge tone={LEVEL_TONE[log.level] ?? 'gray'}>{log.level}</Badge>
                   </Td>
-                  <Td>
+                  <Td wrap className="min-w-[16rem]">
                     <span className="break-all font-mono text-xs">{log.message}</span>
                   </Td>
                 </tr>

@@ -13,6 +13,7 @@ import {
   PageHeader,
   Select,
   Spinner,
+  TableCard,
   Td,
   Th,
 } from '../components/ui';
@@ -93,7 +94,7 @@ export function DevicesPage() {
       ) : null}
 
       {devices.data && devices.data.length > 0 ? (
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <TableCard>
           <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-slate-50">
               <tr>
@@ -142,7 +143,7 @@ export function DevicesPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableCard>
       ) : null}
 
       {showCreate ? (

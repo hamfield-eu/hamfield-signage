@@ -10,6 +10,7 @@ import {
   PageHeader,
   Select,
   Spinner,
+  TableCard,
   Td,
   Th,
 } from '../components/ui';
@@ -57,7 +58,7 @@ export function SchedulesPage() {
       ) : null}
 
       {schedules.data && schedules.data.length > 0 ? (
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <TableCard>
           <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-slate-50">
               <tr>
@@ -116,7 +117,7 @@ export function SchedulesPage() {
                 ))}
             </tbody>
           </table>
-        </div>
+        </TableCard>
       ) : null}
 
       <div className="mt-6">
@@ -148,7 +149,7 @@ function SchedulePreview({ orgId }: { orgId: string }) {
   return (
     <Card title="Preview: what plays when?">
       <div className="flex flex-wrap items-end gap-3">
-        <div className="w-64">
+        <div className="w-full sm:w-64">
           <label className="mb-1 block text-sm font-medium text-slate-700">Screen</label>
           <Select value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
             <option value="">Select a screen…</option>
@@ -159,7 +160,7 @@ function SchedulePreview({ orgId }: { orgId: string }) {
             ))}
           </Select>
         </div>
-        <div className="w-64">
+        <div className="w-full sm:w-64">
           <label className="mb-1 block text-sm font-medium text-slate-700">At (optional)</label>
           <input
             type="datetime-local"

@@ -34,6 +34,14 @@ based on [Keep a Changelog](https://keepachangelog.com/).
   the player, so the newer of the two replaces the older rather than two layers
   fighting over the same z-index.
 
+- **The dashboard works on a phone.** The sidebar is an off-canvas drawer below
+  `lg` (it previously took 240px of a 375px screen and never moved), reached
+  from a new mobile top bar; it closes on navigation and locks the page behind
+  it. Every data table now scrolls sideways inside its card instead of being
+  clipped by `overflow-hidden`. Media's folder tree stacks above the grid, its
+  filter row packs two-up, and playlist rows wrap their controls instead of
+  squeezing the title to nothing.
+
 ### Security
 
 - A TOTP code cannot be replayed inside its own 30-second window: the accepted

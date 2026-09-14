@@ -16,6 +16,7 @@ import {
   PageHeader,
   Select,
   Spinner,
+  TableCard,
   Td,
   Th,
 } from '../components/ui';
@@ -99,7 +100,7 @@ export function OrgSettingsPage() {
           <ErrorNote message={members.error ?? changeRole.error ?? removeMember.error} />
           {members.loading && !members.data ? <Spinner /> : null}
           {members.data ? (
-            <div className="overflow-hidden rounded-md border border-slate-200">
+            <TableCard className="rounded-md shadow-none">
               <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                   <tr>
@@ -159,7 +160,7 @@ export function OrgSettingsPage() {
                   })}
                 </tbody>
               </table>
-            </div>
+            </TableCard>
           ) : null}
 
           <div className="mt-4 border-t border-slate-100 pt-4">
@@ -263,7 +264,7 @@ function AddMemberForm({ orgId, onAdded }: { orgId: string; onAdded: () => void 
     <form onSubmit={onSubmit}>
       <p className="mb-2 text-sm font-medium text-slate-700">Add a member</p>
       <div className="flex flex-wrap items-end gap-2">
-        <div className="w-72">
+        <div className="w-full sm:w-72">
           <Input
             type="email"
             placeholder="user@example.com"
