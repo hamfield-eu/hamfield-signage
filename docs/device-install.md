@@ -1,8 +1,19 @@
 # Device installation
 
-Target hardware: Raspberry Pi 4/5 and ODROID-C4 (any Debian-based OS works —
-Raspberry Pi OS Lite, Ubuntu Server, Armbian). No desktop environment is needed;
-the installer sets up a minimal X + Chromium kiosk.
+Target hardware: ARM SBCs (Raspberry Pi 4/5, ODROID-C4) and x86 thin clients
+(Chromeboxes with coreboot — Acer CXI3, Asus CN62). Any Debian-based OS works:
+Raspberry Pi OS Lite, Ubuntu Server, Armbian, Debian netinst. No desktop
+environment is needed; the installer sets up a minimal X + Chromium kiosk.
+
+**Install from a Lite / server / netinst image.** A desktop image gives the
+console to a display manager, which the kiosk cannot share — see
+[A desktop install is already running X](#a-desktop-install-is-already-running-x).
+This is the single most common way a new x86 unit ends up with a blank screen.
+
+Two things differ between the two families and are called out where they matter:
+x86 boards use **predictable network interface names** (`wlp2s0`, not `wlan0`),
+and only x86 gets the VA-API packages. Per-model measurements live in
+[hardware-matrix.md](hardware-matrix.md).
 
 ## Install
 
@@ -212,12 +223,19 @@ restart counter climbing in `systemctl status signage-player`.
 Hand the console to the kiosk:
 
 ```bash
-ls -l /etc/systemd/system/display-manager.service   # which DM is it?
-sudo systemctl disable --now display-manager
+# display-manager.service is an ALIAS. Resolve it to the real unit first —
+# `systemctl disable` on the alias does not reliably disable the target.
+basename "$(readlink -f /etc/systemd/system/display-manager.service)" .service
 sudo systemctl set-default multi-user.target
+sudo systemctl disable --now gdm.service    # ...or lightdm/sddm, from above
 sudo rm -f /tmp/.X0-lock
 sudo systemctl restart signage-player
 ```
+
+On Debian 13 the `gdm3` **package** ships `gdm.service`, so the unit name is not
+the package name. Verified on an Asus Chromebox CN62 imaged from a Debian 13
+desktop ISO: the player was crash-looping every 5 s with `xinit` exiting within
+~25 ms, and this fixed it.
 
 This removes the local desktop, which is the intent for an appliance. It is
 reversible with `systemctl enable --now display-manager` and
@@ -226,6 +244,36 @@ reversible with `systemctl enable --now display-manager` and
 `install.sh` warns about this at the end of an install when it detects an
 enabled display manager. Installing from a **Lite / server / netinst** image
 avoids it entirely, and is the recommended base for a signage device.
+
+### Reclaiming the disk after a desktop install
+
+Disabling the display manager is enough to make the kiosk work, but the desktop
+is still installed and still costing disk — which matters, because the media
+cache budget is bounded by free space (see `SIGNAGE_MAX_CACHE_GB` above). On a
+CN62 with a 13 GB disk, purging GNOME returned **~1.7 GB**.
+
+**Mark the appliance's own dependencies manual before purging anything.** On a
+Debian desktop image, `sudo`, `openssh-server`, `network-manager`,
+`wpasupplicant`, `iw` and `polkitd` are all pulled in as *dependencies of the
+desktop task*, not installed manually. Dropping the task and running
+`apt-get autoremove --purge` therefore removes remote access, networking, and the
+polkit daemon the `signage` user needs to restart its own units:
+
+```bash
+sudo apt-mark manual sudo openssh-server network-manager wpasupplicant iw polkitd
+sudo apt-get purge -y task-gnome-desktop task-desktop gnome gnome-core gdm3 \
+  firefox-esr libreoffice-core evolution-common gnome-user-docs ibus-data
+
+# One pass only peels the top metapackages — GNOME's web of Recommends stalls
+# orphan detection. Loop until a pass removes nothing.
+while [ "$(sudo apt-get -s autoremove --purge | grep -cE '^(Remv|Purg)')" -gt 0 ]; do
+  sudo apt-get autoremove --purge -y
+done
+sudo apt-get clean
+```
+
+Then confirm the protected packages survived and the services are still up
+before you walk away from the device.
 
 ### Tearing
 
@@ -262,6 +310,7 @@ that is when the whole playlist transfers.
 | Platform            | Chip                       | Driver             | Assessment                                                       |
 | ------------------- | -------------------------- | ------------------ | ---------------------------------------------------------------- |
 | Acer Chromebox CXI3 | Intel Wireless 7265 (095a) | `iwlwifi`/`mvm`    | In-tree, first-party, dual-band 802.11ac 2x2. Best of the three. |
+| Asus Chromebox CN62 | **not recorded**           | `iwlwifi`          | Interface is `wlp2s0`; chip not yet identified with `lspci`.     |
 | Raspberry Pi 4/5    | Broadcom                   | `brcmfmac`         | In-tree; generally dependable.                                   |
 | ODROID-C4           | usually Realtek USB/SDIO   | vendor/out-of-tree | Source of "works on this network, not that one" reports.         |
 
@@ -270,6 +319,15 @@ the access point — WPA3/PMF negotiation and power-save quirks are where
 out-of-tree drivers fail first.
 
 ### Setup (NetworkManager)
+
+**Find the interface name first.** Only the ARM SBCs call it `wlan0`; x86 thin
+clients use predictable names (`wlp2s0` on a CN62). Every `iw` command below
+needs the real one:
+
+```bash
+WIFI_IF="$(nmcli -t -f DEVICE,TYPE device | awk -F: '$2=="wifi"{print $1; exit}')"
+echo "$WIFI_IF"
+```
 
 ```bash
 sudo nmcli device wifi list
@@ -299,13 +357,14 @@ sudo systemctl restart NetworkManager
 `2` means disabled (`3` is enabled — the default).
 
 Without NetworkManager, do the same with a systemd unit running
-`iw dev wlan0 set power_save off` after the interface appears, or a udev rule.
+`iw dev "$WIFI_IF" set power_save off` after the interface appears, or a udev
+rule.
 
 ### Verify the outcome, not the request
 
 ```bash
-iw dev wlan0 get power_save     # want: "Power save: off"
-iw dev wlan0 link               # signal (dBm), bitrate, SSID
+iw dev "$WIFI_IF" get power_save   # want: "Power save: off"
+iw dev "$WIFI_IF" link             # signal (dBm), bitrate, SSID
 nmcli -f NAME,AUTOCONNECT,AUTOCONNECT-RETRIES connection show
 ```
 
@@ -318,9 +377,9 @@ hurts.
 
 | Symptom                                   | Check                                                                                          |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Syncs stall or crawl, playback fine       | `iw dev wlan0 get power_save` — powersave on is the usual cause                                |
+| Syncs stall or crawl, playback fine       | `iw dev $WIFI_IF get power_save` — powersave on is the usual cause                             |
 | Offline after an overnight AP reboot      | `connection.autoconnect-retries` — the default gives up                                        |
-| Connects at the desk, not at the mount    | `iw dev wlan0 link` at the mount; below −75 dBm, move the screen or add an AP                  |
+| Connects at the desk, not at the mount    | `iw dev $WIFI_IF link` at the mount; below −75 dBm, move the screen or add an AP               |
 | Works on one network, not another         | WPA3/PMF or band steering; try `wpa-pmf optional`, or pin the band with `802-11-wireless.band` |
 | Device online, dashboard shows it offline | Outbound HTTPS/WSS blocked by the site firewall; `curl -fsS $SIGNAGE_SERVER_URL/health`        |
 
@@ -330,3 +389,10 @@ No signage device has been soaked on Wi-Fi. The 7265 assessment above is from
 the driver and chip, not from a 72-hour run on a customer network. When the
 first one is done, record the result here: signal at the mount, whether the link
 survived AP reboots, and whether any sync failed.
+
+Both Chromeboxes are Wi-Fi-dependent in production, so one of them will be the
+first: `hamfield-signage-2` (CN62) is Wi-Fi-only at its site. **Unplug Ethernet
+for the soak.** A soak with the wired link still connected validates a path the
+screen will never use, and the failure mode being tested — a marginal link
+during a first full-playlist sync — cannot occur while Ethernet is carrying the
+traffic.
