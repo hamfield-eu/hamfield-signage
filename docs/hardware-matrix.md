@@ -30,7 +30,7 @@ step actually showed.
 | Raspberry Pi 4/5     | ARM64  | Vulkan         | software                      | —    | In production      |
 | ODROID-C4            | ARM64  | software       | software                      | —    | In production      |
 | Acer Chromebox CXI3  | x86-64 | **hardware** ✓ | software (no VA-API in build) | —    | Validated, no soak |
-| Chromebox (2nd unit) | x86-64 | —              | —                             | —    | **UNVALIDATED**    |
+| Asus Chromebox CN62  | x86-64 | **hardware** ✓ | software (no VA-API in build) | —    | Installed, unpaired |
 
 > **Fleet-wide, as of 2026-09-13: nothing has hardware video decode.** No VA-API
 > packages are installed by `install.sh` on any platform, and neither the
@@ -175,19 +175,169 @@ used`. The driver that does implement it (`xf86-video-intel`) is deprecated by
   position**, whether the link survives an AP reboot, and whether any sync
   failed.
 
-## Chromebox — second unit
+## Asus Chromebox CN62 (`hamfield-signage-2`)
 
-**UNVALIDATED — model not yet identified.**
+**Preflight and install 2026-09-14. Agent and player both running; hardware
+compositing confirmed.** The unit is **not yet paired** and is still on Ethernet,
+so nothing has played: no CPU/GPU load figures, no soak. Wi-Fi is the production
+configuration for this screen and is not configured yet.
 
-A second, different Chromebox is in play. It needs its own section rather than
-being assumed identical to the CXI3: a different GPU generation can need a
-different VA-API driver, and `suggestPlaybackProfile` matches on the DMI product
-name, which will differ.
+| Field                | Value                                                                            |
+| -------------------- | -------------------------------------------------------------------------------- |
+| Model                | `GOOGLE Guado` — Asus Chromebox CN62                                             |
+| DMI vendor / product | `GOOGLE` / `Guado`                                                               |
+| Firmware             | `coreboot MrChromebox-2606.1` — already reflashed                                |
+| Arch / kernel        | `x86_64` / `6.12.107+deb13-amd64`                                                |
+| OS                   | Debian GNU/Linux 13 (trixie)                                                     |
+| CPU                  | Intel Celeron 3215U @ 1.70 GHz, **2 cores** (Broadwell)                          |
+| RAM                  | 5.7 GB                                                                           |
+| Storage              | 13.0 GB total; **7.5 GB free** (7.3 before install → 5.8 after → 7.5 after purging GNOME) |
+| GPU                  | Intel HD Graphics `[8086:1606]` rev 09 (**Gen8**, Broadwell GT1)                 |
+| DRM driver           | `i915`, render node `/dev/dri/renderD128` present                                |
+| Display              | HDMI-A-1 at 1920x1080                                                            |
+| Vulkan driver        | `Intel open-source Mesa driver` (ANV), Mesa 25.0.7 — `Intel(R) HD Graphics (BDW GT1)` |
+| VA-API driver        | **iHD 25.2.3** (`intel-media-va-driver`), VA-API 1.22 — selected on Gen8        |
+| H.264 decode         | Driver offers High/Main/ConstrainedBaseline + VLD; **Chromium cannot use it** (0 VA-API symbols, measured on this box) |
+| `SIGNAGE_KIOSK_GPU`  | `auto` → **`angle`**, confirmed in `player-logs` *and* in the live GPU process  |
+| Compositing          | **ANGLE on native GL — hardware, verified**                                     |
+| Chromium             | 152.0.7977.82 (Debian trixie) — `/usr/bin/chromium`, native (Debian wrapper script, not a snap stub) |
+| Network              | **not recorded** — preflight does not probe it; bring-up ran over the LAN        |
+| Validated flags      | **none — flag matrix not run**                                                   |
+| Soak                 | not run                                                                          |
 
-| Field            | Value              |
-| ---------------- | ------------------ |
-| Preflight        | **not run**        |
-| DMI product name | **not determined** |
+### What the numbers decide
+
+- **Storage is the binding constraint on this unit, and the default cache budget
+  does not fit it.** See the arithmetic below. This is the one field that must
+  be configured before the device is put in front of content; everything else
+  can wait for the flag matrix.
+- **iHD is the driver on Gen8 too — measured, and not what was predicted.**
+  Device `8086:1606` is Broadwell GT1, a generation below the CXI3's Kaby Lake
+  `8086:5906`, so `i965-va-driver` was the expected selection. It is not what
+  happens: libva loads `iHD_drv_video.so` and iHD 25.2.3 reports
+  H264 High/Main/ConstrainedBaseline with `VAEntrypointVLD`, exactly as on the
+  CXI3. The installer's own claim that iHD "covers Gen8 onwards" holds on this
+  part. Both drivers are installed and libva picks per device, so nothing needs
+  configuring — but the CXI3's Gen9.5-specific reasoning should not be read as
+  applying here by inheritance; this row is its own measurement.
+- **It is moot for playback anyway, for the same reason as the CXI3.** Debian
+  13's Chromium is built without VA-API, so no VA-API driver on any generation
+  produces hardware decode. Expect software decode on this unit.
+- **The playback tier is NOT yet decided.** `suggestPlaybackProfile` has no
+  `guado` entry and falls through to the `standard` default, so no code change
+  is needed for the device to get a sane tier. But `standard` is a fall-through
+  here, not a measurement: this CPU is slower than the CXI3's 3867U and decode
+  will be software, and the CXI3 only cleared `standard` at ~57% idle *with*
+  hardware compositing. If the measurement pass lands materially worse, `light`
+  is the honest tier and `guado` gets an explicit entry in
+  `packages/shared/src/enums.ts` alongside `sion`.
+- **`auto` resolves to `angle`, and Chromium actually used it — both checked.**
+  `player-logs` reports `kiosk: GPU mode=angle (hardware vulkan driver:
+  intelopen-sourcemesadriver)`, and the live GPU process carries `use-gl=angle`
+  rather than the `use-gl=disabled` that the CXI3's `gles` attempt silently fell
+  back to. The request and the outcome agree, which is the pair that has to be
+  checked separately. Player stable at 0 restarts.
+- **Software decode is confirmed on this unit, not inherited.** `strings -a
+  /usr/lib/chromium/chromium | grep -ci vaapi` → **0** on this box, same as the
+  CXI3. Same Debian Chromium 152.0.7977.82 build, same conclusion, but measured
+  here rather than assumed from the other unit.
+- **RAM is not the worry on this unit.** 5.7 GB against the CXI3's 3.7 GB, so
+  the CXI3 section's "3.7 GB is the tightest number here" does not apply and
+  `--disable-dev-shm-usage` is not expected to be needed.
+
+### Storage: the default budget is unreachable
+
+Measured: **13,934,841,856 B total, 7,820,902,400 B available**, with 5.4 GB
+already used by a bare Debian install and nothing of ours on the disk yet.
+
+`effectiveCacheBudgetBytes` resolves to **8 GiB**: the configured
+`DEFAULT_MAX_CACHE_SIZE_GB` of 8, capped at `MAX_CACHE_DISK_FRACTION` × total =
+0.7 × 12.98 GiB = 9.08 GiB. The cap does not bite, so the full 8 GiB stands —
+**more than the 7.3 GB the disk actually has free.**
+
+`planStorage` then applies two *independent* ceilings, and they are not the same
+number:
+
+| Ceiling                                             | Value on this unit                          |
+| --------------------------------------------------- | ------------------------------------------- |
+| Whole manifest ≤ cache budget                       | 8.00 GiB                                    |
+| Delta to download ≤ free disk − 500 MB headroom     | **6.80 GiB** today, less after `install.sh` |
+
+`requiredBytes` is `bytesToDownload(diff)` — the delta, not the manifest
+(`apps/agent/src/sync.ts:376`) — and `reclaimableBytes` is deliberately not
+counted as available, because downloads land before the stale files are deleted.
+
+Two consequences:
+
+1. **A playlist between 6.8 and 8 GiB passes the budget check and fails the disk
+   check.** The device reports `insufficient_storage` and keeps playing what it
+   has, which is T017 working correctly — but the budget is advertising space
+   the device cannot use.
+2. **A wholesale content swap needs old + new on disk at once.** With free space
+   `F` and budget `B`, a full swap requires `F − B ≥ B + 0.5 GiB`, i.e.
+   `B ≤ (F − 0.5) / 2`. `install.sh` will consume some of the 7.3 GB for X,
+   Chromium and the VA-API packages, so `F` is likely ~6 GiB afterwards, putting
+   the always-swappable budget near **3 GiB**.
+
+**Do not finalise the override from these numbers** — measure free space again
+after `install.sh` and set it then:
+
+```bash
+# After install.sh, on the device:
+df -B1 /var/lib/signage
+signage config set SIGNAGE_MAX_CACHE_GB 3     # full swaps always fit
+# or
+signage config set SIGNAGE_MAX_CACHE_GB 5     # more cache; a wholesale swap
+                                              # can be refused until it is split
+```
+
+The 3 GiB option keeps every swap workable. The 5 GiB option holds more content
+and accepts that replacing an entire large playlist in one step may be refused —
+which fails safe (the screen carries on) but needs an operator to notice.
+
+### Open
+
+- **Cache budget override — required, not yet set.** As above, after
+  `install.sh`.
+- **`MAX_CACHE_DISK_FRACTION` is applied to total, not free, disk.** On a 13 GB
+  disk with 5.4 GB already spent on the OS it computes a 9.08 GiB cap and
+  protects nothing — the configured 8 GiB passes through unchanged and exceeds
+  free space. The CXI3 (21 GB free of 27.3 GB) never exposed this. Worth a T017
+  follow-up; deliberately **not** changed as part of this unit's bring-up.
+- **RESOLVED — `gdm3` owned the console and the player crash-looped.** This box
+  was installed from a Debian **desktop** image (GNOME + `gdm3`, default target
+  `graphical.target`), not the Lite/netinst image
+  [device-install.md](device-install.md) calls for. `xinit` exited 1 within
+  ~25 ms on a 5 s restart loop. `install.sh` detects and warns about exactly
+  this; it was not an installer bug. Fixed with `systemctl set-default
+  multi-user.target` + `systemctl disable --now gdm.service`. **Expect this on
+  any x86 thin client imaged from a desktop ISO** — it is the second-most likely
+  thing to go wrong on a new Chromebox after the GPU flags.
+- **RESOLVED — GNOME purged, ~1.7 GB reclaimed** (5.8 GB → 7.5 GB free). Note
+  for the next unit: `sudo`, `openssh-server`, `network-manager`, `wpasupplicant`,
+  `iw` and `polkitd` were all **auto-marked**, pulled in as dependencies of the
+  desktop task. A plain `apt-get autoremove --purge` after dropping the task
+  metapackages would have removed remote access, networking and the polkit
+  daemon the `signage` user needs to restart its own units. `apt-mark manual`
+  those first. One autoremove pass also only peels the top ~14 metapackages —
+  GNOME's Recommends web stalls orphan detection, so the pass must be looped.
+- **Not paired.** Pairing code issued; `signage pair` not yet run.
+- **Wi-Fi not configured, and it is the production configuration for this
+  screen.** Interface is **`wlp2s0`**, not the `wlan0` the docs' examples assume.
+  Radio enabled, target SSID visible at signal 89 and 82 (two radios/bands). The
+  `iwlwifi` power-save trap and `autoconnect-retries 0` both still to apply; see
+  [device-install.md](device-install.md). The soak must run on Wi-Fi with
+  Ethernet physically unplugged — a soak on the wired link validates a path this
+  screen will never use.
+- **No playback figures.** The CXI3 row records measured RCS/CPU numbers; this
+  unit has none, because nothing has played yet. `intel_gpu_top` (RCS non-zero)
+  and idle CPU at 1080p30 are the numbers to take once content is syncing.
+- **Playback tier unmeasured.** See above — `standard` is a fall-through, not a
+  result.
+- **Network configuration not recorded.** Whether this unit ships on Ethernet or
+  Wi-Fi is undetermined; if Wi-Fi, the `iwlwifi` power-save trap in
+  [device-install.md](device-install.md) applies and the soak must run on Wi-Fi.
+- **72-hour soak.** Not run.
 
 ---
 
